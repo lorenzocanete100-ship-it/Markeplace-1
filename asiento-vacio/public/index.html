@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asiento Vacío · Viajes compartidos entre particulares</title>
+<meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
+<meta name="theme-color" content="#0b6e4f">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/styles.css?v=1">
+<script src="assets/app.js?v=1" defer></script>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-seat" viewBox="0 0 24 24"><path d="M7 3h3a2 2 0 0 1 2 2.1l-.5 7.4H16a2 2 0 0 1 2 2V17a1.5 1.5 0 0 1-1.5 1.5H8a2 2 0 0 1-2-1.9L5 5.1A2 2 0 0 1 7 3zM8 18.5V21m8-2.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 16H4a1 1 0 0 1-1-1v-3.2a2 2 0 0 1 .6-1.4L6 8l1.6-2.9A2 2 0 0 1 9.3 4h5.4a2 2 0 0 1 1.7 1l1.6 3 2.4 2.4a2 2 0 0 1 .6 1.4V15a1 1 0 0 1-1 1h-1M9 16h6M6 8h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="16.5" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="17" cy="16.5" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-fuel" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10m0 3h2a2 2 0 0 1 2 2v2a1.5 1.5 0 0 0 3 0V8.5L18 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M5 4h3.5l1.7 4.2-2.2 1.4a11 11 0 0 0 6.4 6.4l1.4-2.2L20 15.5V19a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 0 0-7.4 12.7L3.5 20.5l4.4-1.1A8.5 8.5 0 1 0 12 3.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8.6c.3 2.9 2.6 5.3 5.5 6l1-1.4-1.9-1-1 .8a4.6 4.6 0 0 1-2.1-2.1l.8-1-1-1.9z" fill="currentColor"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="#viajes"><img src="favicon.svg" alt="" width="32" height="32"><span>Asiento Vacío</span></a>
+    <nav class="nav" aria-label="Secciones">
+      <a href="#viajes" data-view="viajes">Viajes</a>
+      <a href="#mis-viajes" data-view="mis-viajes" class="only-user" hidden>Mis viajes</a>
+      <a href="#entrar" data-view="entrar" class="only-guest">Entrar</a>
+      <button type="button" class="nav-link only-user" id="logout" hidden>Salir</button>
+      <a href="#publicar" data-view="publicar" class="nav-cta">Publicar viaje</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="view" id="view-viajes" aria-labelledby="t-viajes">
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Viajes compartidos entre particulares</p>
+        <h1 id="t-viajes">¿Vas para el mismo lado? Compartan el viaje y los gastos.</h1>
+        <p class="lead">Personas que ya tienen que viajar ofrecen los asientos libres de su auto. No hay tarifas: entre todos se cubre el combustible y alguna comida en el camino. Hablás directo con el conductor.</p>
+      </div>
+    </div>
+    <div class="wrap">
+      <form class="search card" id="search" role="search">
+        <label>Desde<input name="from" list="places" autocomplete="off" placeholder="Ciudad de salida"></label>
+        <label>Hacia<input name="to" list="places" autocomplete="off" placeholder="Ciudad de destino"></label>
+        <label>Fecha<input name="day" type="date"></label>
+        <button type="reset" class="btn btn-ghost">Limpiar</button>
+      </form>
+      <datalist id="places"></datalist>
+      <p class="count" id="count" aria-live="polite"></p>
+      <div class="trips" id="trips"></div>
+      <div class="empty card" id="empty" hidden>
+        <p><strong>No hay viajes que coincidan.</strong></p>
+        <p>Probá con otra fecha o ciudad. Si vos viajás y te sobran asientos, publicá tu viaje.</p>
+        <a class="btn" href="#publicar">Publicar mi viaje</a>
+      </div>
+
+      <section class="how" aria-labelledby="t-how">
+        <h2 id="t-how">Cómo funciona</h2>
+        <ol class="steps">
+          <li><strong>Un particular publica su viaje.</strong> Alguien que ya iba a viajar avisa cuántos asientos le quedan libres.</li>
+          <li><strong>Lo llamás o le escribís.</strong> El teléfono del conductor está a la vista en cada viaje. Se ponen de acuerdo entre ustedes.</li>
+          <li><strong>Comparten los gastos.</strong> Sin tarifas ni comisiones: se reparte el combustible y alguna comida en el camino.</li>
+        </ol>
+        <div class="tips">
+          <h3>Para viajar tranquilos</h3>
+          <ul>
+            <li>Encontrense en un lugar público y contale a alguien con quién viajás.</li>
+            <li>Acuerden antes el punto de encuentro, el equipaje y las paradas.</li>
+            <li>Si cruzan una frontera, cada uno lleva su propia documentación.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <section class="view" id="view-publicar" aria-labelledby="t-publicar" hidden>
+    <div class="wrap narrow">
+      <h1 id="t-publicar">Publicar un viaje</h1>
+      <p class="muted">¿Viajás y te sobran asientos? Avisá acá y los interesados te llaman directo.</p>
+      <form class="card form" id="publish" novalidate>
+        <div class="row">
+          <label>Salgo desde<input name="origin" list="places" required maxlength="80" placeholder="Ej: González Catán"></label>
+          <label>Voy hacia<input name="destination" list="places" required maxlength="80" placeholder="Ej: Córdoba"></label>
+        </div>
+        <div class="row row-3">
+          <label>Fecha<input name="day" type="date" required></label>
+          <label>Hora de salida<input name="hour" type="time" required></label>
+          <label>Asientos libres
+            <select name="seats" required>
+              <option>1</option><option>2</option><option selected>3</option><option>4</option>
+              <option>5</option><option>6</option><option>7</option><option>8</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>Tu nombre<input name="driver" required maxlength="60" autocomplete="name"></label>
+          <label>Teléfono / WhatsApp<input name="phone" type="tel" required maxlength="25" autocomplete="tel" placeholder="54 9 11 2345 6789"><small>Con código de país y de área, sin 0 ni 15.</small></label>
+        </div>
+        <label><span>Vehículo <span class="opt">(opcional)</span></span><input name="vehicle" maxlength="60" placeholder="Ej: Fiat Cronos gris"></label>
+        <label><span>Detalles <span class="opt">(opcional)</span></span><textarea name="notes" rows="3" maxlength="600" placeholder="Punto de encuentro, equipaje, paradas, si se puede llevar mascotas…"></textarea></label>
+        <div class="share-box">
+          <svg class="icon"><use href="#i-fuel"/></svg>
+          <p><strong>Sin precio.</strong> En todos los viajes se comparten los gastos de combustible y alguna comida. No pongas montos ni tarifas.</p>
+        </div>
+        <label class="check"><input type="checkbox" name="confirmPrivate" required> Soy un particular, ya tenía pensado hacer este viaje y solo voy a compartir los gastos, sin cobrar tarifa.</label>
+        <label class="check"><input type="checkbox" name="confirmPhone" required> Acepto que mi teléfono se muestre en la página para que me contacten.</label>
+        <p class="form-error" role="alert" hidden></p>
+        <button class="btn btn-big" type="submit">Publicar viaje</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="view" id="view-mis-viajes" aria-labelledby="t-mine" hidden>
+    <div class="wrap">
+      <div class="head-row">
+        <h1 id="t-mine">Mis viajes</h1>
+        <a class="btn" href="#publicar">Publicar otro viaje</a>
+      </div>
+      <p class="muted">Cuando se llenen los asientos, marcá el viaje como completo para que no te sigan llamando.</p>
+      <div class="trips" id="mine"></div>
+      <div class="empty card" id="mine-empty" hidden>
+        <p>Todavía no publicaste viajes.</p>
+        <a class="btn" href="#publicar">Publicar mi primer viaje</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-entrar" aria-labelledby="t-entrar" hidden>
+    <div class="wrap narrow">
+      <h1 id="t-entrar">Cuenta de conductor</h1>
+      <p class="muted">Solo necesitás cuenta para publicar tus viajes. Para viajar no hace falta: llamá directo al conductor.</p>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="login">Entrar</button>
+        <button type="button" role="tab" id="tab-register" aria-selected="false" aria-controls="register">Crear cuenta</button>
+      </div>
+      <form class="card form" id="login" role="tabpanel" aria-labelledby="tab-login">
+        <label>Correo<input name="email" type="email" required autocomplete="email"></label>
+        <label>Contraseña<input name="password" type="password" required minlength="10" autocomplete="current-password"></label>
+        <p class="form-error" role="alert" hidden></p>
+        <button class="btn btn-big" type="submit">Entrar</button>
+      </form>
+      <form class="card form" id="register" role="tabpanel" aria-labelledby="tab-register" hidden>
+        <label>Nombre<input name="name" required maxlength="80" autocomplete="name"></label>
+        <label>Correo<input name="email" type="email" required autocomplete="email"></label>
+        <label>Contraseña<input name="password" type="password" required minlength="10" autocomplete="new-password"><small>Mínimo 10 caracteres.</small></label>
+        <p class="form-error" role="alert" hidden></p>
+        <button class="btn btn-big" type="submit">Crear cuenta</button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <p><strong>Asiento Vacío es un tablero de avisos entre particulares.</strong> No es una empresa de transporte: no vende pasajes, no fija precios, no cobra comisiones y no interviene en los viajes.</p>
+    <p>Cada viaje lo organiza el propio conductor, que ya tenía pensado viajar, y los acompañantes solo colaboran con los gastos del camino (combustible y comida). Cada conductor es responsable de tener su licencia, el seguro y el vehículo en regla.</p>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<template id="trip-tpl">
+  <article class="trip card">
+    <div class="trip-top">
+      <p class="when"><span class="day"></span> · <span class="hour"></span></p>
+      <p class="seats"><svg class="icon"><use href="#i-seat"/></svg><span></span></p>
+    </div>
+    <h3 class="route"><span class="from"></span><svg class="icon arrow"><use href="#i-arrow"/></svg><span class="to"></span></h3>
+    <p class="vehicle"><svg class="icon"><use href="#i-car"/></svg><span></span></p>
+    <p class="notes"></p>
+    <p class="share"><svg class="icon"><use href="#i-fuel"/></svg>Sin tarifa · Se comparten combustible y alguna comida</p>
+    <div class="contact">
+      <p class="driver">Conductor: <strong></strong></p>
+      <a class="phone"><svg class="icon"><use href="#i-phone"/></svg><span></span></a>
+      <div class="actions">
+        <a class="btn btn-call"><svg class="icon"><use href="#i-phone"/></svg>Llamar</a>
+        <a class="btn btn-wa" target="_blank" rel="noopener"><svg class="icon"><use href="#i-chat"/></svg>WhatsApp</a>
+      </div>
+    </div>
+    <div class="owner" hidden>
+      <p class="status"></p>
+      <div class="stepper" role="group" aria-label="Asientos libres">
+        <button type="button" class="btn btn-ghost less" aria-label="Un asiento menos">−</button>
+        <span class="n"></span>
+        <button type="button" class="btn btn-ghost more" aria-label="Un asiento más">+</button>
+      </div>
+      <button type="button" class="btn btn-ghost toggle"></button>
+    </div>
+    <button type="button" class="link-danger delete" hidden>Borrar viaje</button>
+  </article>
+</template>
+</body>
+</html>
