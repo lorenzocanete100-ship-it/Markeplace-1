@@ -5,13 +5,7 @@ Options -Indexes
 <FilesMatch "^(config\.php|.*\.(sqlite|db|log|md))$">
   Require all denied
 </FilesMatch>
-
-<IfModule mod_rewrite.c>
-  RewriteEngine On
-  RewriteCond %{HTTPS} off
-  RewriteCond %{HTTP:X-Forwarded-Proto} !https
-  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-</IfModule>
+RedirectMatch 404 /\.git
 
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
