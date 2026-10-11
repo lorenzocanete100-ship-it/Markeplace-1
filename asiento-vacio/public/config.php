@@ -9,8 +9,10 @@ return [
     'admin_email' => getenv('ASIENTO_ADMIN_EMAIL') ?: '',
 
     // Carpeta donde se guardan la base de datos y las sesiones.
-    // Por defecto queda fuera de public_html, así nadie la puede descargar.
-    'data_dir' => getenv('ASIENTO_DATA_DIR') ?: dirname(__DIR__) . '/asiento-vacio-datos',
+    // Queda al lado de public_html (no adentro), así nadie la puede descargar,
+    // aunque la página esté en una subcarpeta.
+    'data_dir' => getenv('ASIENTO_DATA_DIR')
+        ?: (preg_match('#^(.*)/public_html(/|$)#', __DIR__, $m) ? $m[1] : dirname(__DIR__)) . '/asiento-vacio-datos',
 
     'timezone' => 'America/Argentina/Buenos_Aires',
 ];

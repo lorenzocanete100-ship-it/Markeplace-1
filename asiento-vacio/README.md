@@ -20,7 +20,7 @@ public/            ← esto es lo que va en public_html
   index.html       página
   api.php          servidor (cuentas y viajes)
   config.php       configuración (correo de administración)
-  .htaccess        seguridad y HTTPS
+  .htaccess        seguridad (HTTPS lo fuerza Hostinger)
   favicon.svg
   assets/          estilos y JavaScript
 tests/api_test.php pruebas automáticas
