@@ -72,6 +72,18 @@ function toast(message) {
   toast.timer = setTimeout(() => { el.hidden = true; }, 3800);
 }
 
+// Confirmación dibujada en la página: dentro de otras apps el confirm() del navegador no aparece.
+function ask(question, ok) {
+  const dialog = $('#ask-dlg');
+  $('#ask-text').textContent = question;
+  $('#ask-ok').textContent = ok;
+  dialog.returnValue = '';
+  dialog.showModal();
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'yes'), { once: true });
+  });
+}
+
 function showError(form, message) {
   const el = $('.form-error', form);
   el.textContent = message || '';
@@ -204,7 +216,7 @@ async function updateTrip(trip, changes) {
 }
 
 async function deleteTrip(trip) {
-  if (!confirm(`¿Borrar el viaje de ${trip.origin} a ${trip.destination}? No se puede deshacer.`)) return;
+  if (!(await ask(`¿Borrar el viaje de ${trip.origin} a ${trip.destination}? No se puede deshacer.`, 'Borrar viaje'))) return;
   try {
     await api('trip_delete', { body: { id: trip.id } });
     toast('Viaje borrado.');
@@ -352,8 +364,8 @@ const badge = (text, kind = '') => el('span', { className: `badge ${kind}`.trim(
 const button = (text, onclick, kind = 'btn-ghost') => el('button', { type: 'button', className: `btn btn-sm ${kind}`, textContent: text, onclick });
 const emptyRow = (text) => el('p', { className: 'empty-row', textContent: text });
 
-async function adminAction(action, body, { ask, done } = {}) {
-  if (ask && !confirm(ask)) return;
+async function adminAction(action, body, { question, ok, done } = {}) {
+  if (question && !(await ask(question, ok))) return;
   try {
     await api(action, { body });
     if (done) toast(done);
@@ -365,7 +377,7 @@ async function adminAction(action, body, { ask, done } = {}) {
 }
 
 const deleteTripButton = (id) => button('Borrar viaje', () => adminAction('admin_trip', { id, action: 'delete' },
-  { ask: '¿Borrar este viaje? Deja de verse en la página.', done: 'Viaje borrado.' }), 'btn-danger');
+  { question: '¿Borrar este viaje? Deja de verse en la página.', ok: 'Borrar viaje', done: 'Viaje borrado.' }), 'btn-danger');
 
 async function loadAdmin() {
   const isAdmin = Boolean(state.user?.admin);
@@ -466,11 +478,11 @@ function renderUsers() {
         !self && !isAdmin && (blocked
           ? button('Desbloquear', () => adminAction('admin_user', { id: u.id, action: 'unblock' }, { done: 'Cuenta desbloqueada.' }))
           : button('Bloquear', () => adminAction('admin_user', { id: u.id, action: 'block' },
-            { ask: `¿Bloquear a ${u.name}? Sus viajes dejan de verse y no va a poder entrar.`, done: 'Cuenta bloqueada.' }), 'btn-danger')),
+            { question: `¿Bloquear a ${u.name}? Sus viajes dejan de verse y no va a poder entrar.`, ok: 'Bloquear', done: 'Cuenta bloqueada.' }), 'btn-danger')),
         !self && !blocked && (isAdmin
           ? button('Quitar administración', () => adminAction('admin_user', { id: u.id, action: 'remove_admin' }, { done: 'Ya no es administrador.' }))
           : button('Hacer administrador', () => adminAction('admin_user', { id: u.id, action: 'make_admin' },
-            { ask: `¿Darle acceso de administración a ${u.name}?`, done: 'Ahora es administrador.' })))));
+            { question: `¿Darle acceso de administración a ${u.name}?`, ok: 'Dar acceso', done: 'Ahora es administrador.' })))));
   });
   $('#admin-users').replaceChildren(...(rows.length ? rows : [emptyRow('No hay conductores que coincidan.')]));
 }

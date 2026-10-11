@@ -1,3 +1,4 @@
+/* Tablero de avisos para el celular: barra fija, portada verde con línea de ruta y tarjetas de viaje. */
 :root {
   --bg: #f5f3ee;
   --surface: #ffffff;
@@ -7,16 +8,25 @@
   --primary: #0b6e4f;
   --primary-ink: #ffffff;
   --primary-soft: #e3f1ea;
+  --hero: #0b6e4f;
+  --hero-ink: #ffffff;
   --accent: #ffc53d;
+  --accent-ink: #2b2100;
   --wa: #128c4b;
+  --wa-ink: #ffffff;
   --danger: #b42318;
+  --danger-ink: #ffffff;
+  --warn-bg: #fff1c7;
+  --warn-ink: #6b4e00;
+  --bad-bg: #fde3df;
+  --bad-ink: #9b1c12;
   --radius: 16px;
   --shadow: 0 1px 2px rgb(20 24 28 / 6%), 0 4px 16px rgb(20 24 28 / 6%);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #121417;
     --surface: #1b1e23;
     --ink: #eceef1;
@@ -25,11 +35,40 @@
     --primary: #3cc68f;
     --primary-ink: #0b1a13;
     --primary-soft: #183229;
+    --hero: #0d4f3a;
     --wa: #2fbf71;
+    --wa-ink: #06180d;
     --danger: #ff8a7a;
+    --danger-ink: #2a0b07;
+    --warn-bg: #3d3108;
+    --warn-ink: #ffd76a;
+    --bad-bg: #43191a;
+    --bad-ink: #ff9d90;
     --shadow: none;
     color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+    --bg: #121417;
+    --surface: #1b1e23;
+    --ink: #eceef1;
+    --muted: #a3a9b2;
+    --line: #2d3138;
+    --primary: #3cc68f;
+    --primary-ink: #0b1a13;
+    --primary-soft: #183229;
+    --hero: #0d4f3a;
+    --wa: #2fbf71;
+    --wa-ink: #06180d;
+    --danger: #ff8a7a;
+    --danger-ink: #2a0b07;
+    --warn-bg: #3d3108;
+    --warn-ink: #ffd76a;
+    --bad-bg: #43191a;
+    --bad-ink: #ff9d90;
+    --shadow: none;
+    color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -62,7 +101,7 @@ a { color: var(--primary); }
 
 /* Barra superior */
 .topbar {
-  position: sticky; top: 0; z-index: 10;
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
@@ -81,8 +120,8 @@ a { color: var(--primary); }
 
 /* Portada */
 .hero {
-  background: var(--primary);
-  color: #fff;
+  background: var(--hero);
+  color: var(--hero-ink);
   padding: 40px 0 72px;
   position: relative;
   overflow: hidden;
@@ -92,7 +131,6 @@ a { color: var(--primary); }
   background: repeating-linear-gradient(90deg, var(--accent) 0 44px, transparent 44px 80px);
   opacity: .9;
 }
-@media (prefers-color-scheme: dark) { .hero { background: #0d4f3a; } }
 .hero h1 { max-width: 20ch; }
 .eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: .8rem; font-weight: 700; color: var(--accent); }
 .lead { max-width: 60ch; font-size: 1.08rem; opacity: .95; }
@@ -148,7 +186,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
 .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
 .btn-ghost:hover { background: var(--primary-soft); filter: none; }
 .btn-big { min-height: 52px; font-size: 1.05rem; }
-.btn-wa { background: var(--wa); color: #fff; }
+.btn-wa { background: var(--wa); color: var(--wa-ink); }
 .link-danger { background: none; border: 0; padding: 4px 0; font: inherit; font-size: .9rem; color: var(--danger); cursor: pointer; text-decoration: underline; justify-self: start; }
 
 /* Viajes */
@@ -161,7 +199,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
 .when { font-weight: 800; color: var(--primary); }
 .seats {
   display: inline-flex; align-items: center; gap: 6px;
-  background: var(--accent); color: #2b2100; font-weight: 800; font-size: .9rem;
+  background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: .9rem;
   padding: 4px 10px; border-radius: 999px;
 }
 .route { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 1.3rem; margin: 0; }
@@ -200,7 +238,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
 .steps li::before {
   content: counter(s); position: absolute; left: 16px; top: 16px;
   width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
-  background: var(--accent); color: #2b2100; font-weight: 800;
+  background: var(--accent); color: var(--accent-ink); font-weight: 800;
 }
 .steps strong { display: block; }
 .tips { background: var(--primary-soft); border-radius: var(--radius); padding: 16px 20px; }
@@ -253,14 +291,14 @@ legend { font-weight: 700; margin-bottom: 8px; padding: 0; }
 .item-quote { border-left: 3px solid var(--line); padding-left: 10px; white-space: pre-line; }
 .item-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .btn-sm { min-height: 36px; padding: 6px 12px; font-size: .9rem; border-radius: 10px; }
-.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger { background: var(--danger); color: var(--danger-ink); }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .badge { font-size: .78rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); }
-.badge.warn { background: #fff1c7; color: #6b4e00; }
-.badge.bad { background: #fde3df; color: #9b1c12; }
+.badge.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.badge.bad { background: var(--bad-bg); color: var(--bad-ink); }
 .badge.off { background: var(--line); color: var(--muted); }
-@media (prefers-color-scheme: dark) {
-  .badge.warn { background: #3d3108; color: #ffd76a; }
-  .badge.bad { background: #43191a; color: #ff9d90; }
-}
 .rows .empty-row { color: var(--muted); padding: 12px 0; }
+
+/* Confirmación dentro de la página */
+#ask-dlg { max-width: 400px; }
+#ask-dlg p { margin: 0; font-weight: 600; }

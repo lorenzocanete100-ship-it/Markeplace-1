@@ -7,8 +7,8 @@
 <meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
 <meta name="theme-color" content="#0b6e4f">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/styles.css?v=2">
-<script src="assets/app.js?v=2" defer></script>
+<link rel="stylesheet" href="assets/styles.css?v=3">
+<script src="assets/app.js?v=3" defer></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true">
@@ -234,6 +234,16 @@
     </div>
   </article>
 </template>
+
+<dialog id="ask-dlg" aria-labelledby="ask-text">
+  <form method="dialog" class="form">
+    <p id="ask-text"></p>
+    <div class="dlg-actions">
+      <button type="submit" value="no" class="btn btn-ghost">Cancelar</button>
+      <button type="submit" value="yes" class="btn btn-danger" id="ask-ok">Sí</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="report-dlg" aria-labelledby="t-report">
   <form method="dialog" class="form" id="report-form">
