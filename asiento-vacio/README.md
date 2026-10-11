@@ -19,7 +19,7 @@ hosting web de Hostinger (planes Premium o Business).
 public/            ← esto es lo que va en public_html
   index.html       página
   api.php          servidor (cuentas y viajes)
-  config.php       configuración (correo de administración)
+  config.php       configuración (código de administración)
   .htaccess        seguridad (HTTPS lo fuerza Hostinger)
   favicon.svg
   assets/          estilos y JavaScript
@@ -60,8 +60,17 @@ RewriteEngine On
 RewriteRule ^$ /viajes/ [R=302,L]
 ```
 
-Para ser administrador (poder borrar viajes de otros), creá tu cuenta en la
-página y poné ese correo en `admin_email` de `config.php`.
+## Administrar
+
+En `#admin` (menú "Administrar") hay un resumen, las denuncias que manda la
+gente desde cada viaje, la lista de todos los viajes (con borrar y restaurar) y
+la de conductores (bloquear, desbloquear y nombrar administradores). Un
+conductor bloqueado no puede entrar y sus viajes dejan de verse.
+
+La primera cuenta de administración se activa una sola vez con un código
+secreto: en `config.php` solo está su huella SHA-256. Para cambiar el código,
+reemplazá esa huella por la de uno nuevo (`printf 'CODIGONUEVO' | sha256sum`,
+en mayúsculas y sin guiones).
 
 ## Aviso
 

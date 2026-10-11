@@ -11,7 +11,15 @@ $root = dirname(__DIR__) . '/public';
 $data = sys_get_temp_dir() . '/asiento-test-' . bin2hex(random_bytes(4));
 $port = random_int(20000, 40000);
 $base = "http://127.0.0.1:$port";
-$env = [...getenv(), 'ASIENTO_DATA_DIR' => $data, 'ASIENTO_ADMIN_EMAIL' => 'admin@example.com'];
+$env = [...getenv(), 'ASIENTO_DATA_DIR' => $data, 'ASIENTO_ADMIN_CODE_SHA256' => hash('sha256', 'TESTCODE1234')];
+
+// Base con el formato anterior (sin administración), como la que ya puede haber en el hosting.
+mkdir("$data/sesiones", 0700, true);
+$legacy = new PDO("sqlite:$data/viajes.sqlite");
+$legacy->exec('CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password TEXT NOT NULL, created INTEGER NOT NULL)');
+$legacy->prepare('INSERT INTO users VALUES (?,?,?,?,?)')->execute(['cuenta-vieja', 'vieja@example.com', 'Cuenta vieja', password_hash('una-clave-de-prueba', PASSWORD_DEFAULT), time()]);
+$legacy = null;
+
 $server = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", '-t', $root], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, $env);
 register_shutdown_function(function () use ($server, $data) {
     proc_terminate($server);
@@ -92,9 +100,14 @@ echo "Asiento Vacío: pruebas\n";
 $anon = new Client($base);
 [$code, $body] = $anon->get('session');
 check('la sesión entrega token y fecha', $code === 200 && strlen($body['csrf']) === 64 && $body['today'] === date('Y-m-d') && $body['user'] === null, $body);
-check('sin token CSRF se rechaza', $anon->post('register', [], 'malo')[0] === 403);
+[$code, $body] = $anon->post('register', [], 'malo');
+check('sin token CSRF se rechaza', $code === 403 && $body['csrf'] === true, $body);
 check('publicar sin cuenta pide iniciar sesión', $anon->post('trip_create', $trip)[0] === 401);
 check('mis viajes sin cuenta pide iniciar sesión', $anon->get('trips', '&mine=1')[0] === 401);
+
+$old = new Client($base);
+[$code, $body] = $old->post('login', ['email' => 'vieja@example.com', 'password' => 'una-clave-de-prueba']);
+check('una cuenta de la versión anterior sigue funcionando', $code === 200 && $body['user']['admin'] === false, $body);
 
 $driver = new Client($base);
 [$code, $body] = $driver->register('juan@example.com');
@@ -153,19 +166,69 @@ $ids = array_column($anon->get('trips')[1]['items'], 'id');
 check('los viajes pasados desaparecen solos', !in_array($tripId, $ids, true), $ids);
 $db->prepare("UPDATE trips SET day=? WHERE id=?")->execute([$tomorrow, $tripId]);
 
+$find = fn(array $items, string $key, string $value) => array_values(array_filter($items, fn($i) => $i[$key] === $value))[0] ?? [];
+$publicIds = fn() => array_column($anon->get('trips')[1]['items'], 'id');
+
+echo "Administración\n";
 $admin = new Client($base);
-[$code, $body] = $admin->register('admin@example.com', 'Admin');
-check('la cuenta de administración se reconoce', $code === 200 && $body['user']['admin'] === true, $body);
-$listed = array_values(array_filter($admin->get('trips')[1]['items'], fn($t) => $t['id'] === $tripId))[0] ?? [];
+$admin->register('duena@example.com', 'Dueña');
+check('sin cuenta no se entra a administración', $anon->get('admin_users')[0] === 401);
+check('sin activar, un usuario no es administrador', $admin->get('admin_overview')[0] === 403);
+check('código incorrecto', $admin->post('admin_claim', ['code' => 'AAAA-BBBB-CCCC-DDDD'])[0] === 403);
+[$code, $body] = $admin->post('admin_claim', ['code' => 'test-code-1234']);
+check('el código activa la administración', $code === 200 && $body['user']['admin'] === true, $body);
+check('el código no sirve una segunda vez', $other->post('admin_claim', ['code' => 'TESTCODE1234'])[0] === 409);
+check('los usuarios comunes no ven administración', $other->get('admin_trips')[0] === 403);
+
+check('denuncia sin motivo', $anon->post('report', ['trip' => $tripId, 'reason' => 'porque sí'])[0] === 400);
+check('denuncia de un viaje que no existe', $anon->post('report', ['trip' => 'nada', 'reason' => 'precio'])[0] === 404);
+check('cualquiera puede denunciar sin cuenta', $anon->post('report', ['trip' => $tripId, 'reason' => 'precio', 'details' => 'Me pidió plata'])[0] === 201);
+$report = $admin->get('admin_reports')[1]['items'][0] ?? [];
+check('la denuncia llega a administración', ($report['trip'] ?? '') === $tripId && $report['details'] === 'Me pidió plata' && $report['owner_email'] === 'juan@example.com', $report);
+$overview = $admin->get('admin_overview')[1];
+check('el resumen cuenta denuncias y conductores', $overview['reports'] === 1 && $overview['drivers'] === 5 && $overview['upcoming'] >= 1, $overview);
+check('descartar una denuncia', $admin->post('admin_report', ['id' => $report['id'], 'action' => 'dismiss'])[0] === 200 && $admin->get('admin_reports')[1]['items'] === []);
+$anon->post('report', ['trip' => $tripId, 'reason' => 'datos']);
+$row = $find($admin->get('admin_trips')[1]['items'], 'id', $tripId);
+check('la lista de viajes muestra denuncias y correo', $row['reports'] === 1 && $row['owner_email'] === 'juan@example.com', $row);
+
+$users = $admin->get('admin_users')[1]['items'];
+$juan = $find($users, 'email', 'juan@example.com');
+$me = $find($users, 'email', 'duena@example.com');
+$ana = $find($users, 'email', 'otra@example.com');
+check('la lista de conductores cuenta sus viajes', $juan['trips'] === 2 && $me['is_admin'] === 1, [$juan, $me]);
+check('bloquear a un conductor', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block'])[0] === 200);
+check('los viajes de un bloqueado no se ven', !in_array($tripId, $publicIds(), true));
+check('un bloqueado pierde la sesión', $driver->get('session')[1]['user'] === null);
+[$code, $body] = $driver->post('login', ['email' => 'juan@example.com', 'password' => 'una-clave-de-prueba']);
+check('un bloqueado no puede entrar', $code === 403 && $body['error'] === 'Tu cuenta está suspendida.', $body);
+check('desbloquear', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'unblock'])[0] === 200);
+check('desbloqueado, sus viajes vuelven', in_array($tripId, $publicIds(), true));
+[$code, $body] = $driver->post('login', ['email' => 'juan@example.com', 'password' => 'una-clave-de-prueba']);
+$driver->csrf = $body['csrf'] ?? $driver->csrf;
+check('desbloqueado, puede entrar', $code === 200, $body);
+check('no podés bloquearte a vos mismo', $admin->post('admin_user', ['id' => $me['id'], 'action' => 'block'])[0] === 400);
+check('no podés quitarte la administración', $admin->post('admin_user', ['id' => $me['id'], 'action' => 'remove_admin'])[0] === 400);
+check('nombrar otro administrador', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'make_admin'])[0] === 200 && $other->get('session')[1]['user']['admin'] === true);
+check('no se bloquea a un administrador', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'block'])[0] === 400);
+check('quitar la administración a otro', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'remove_admin'])[0] === 200 && $other->get('session')[1]['user']['admin'] === false);
+check('acción de usuario inventada', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'borrar'])[0] === 400);
+
+$listed = $find($admin->get('trips')[1]['items'], 'id', $tripId);
 check('administración puede borrar viajes ajenos', $listed['canDelete'] ?? false, $listed);
 check('administración no puede editar viajes ajenos', $admin->post('trip_update', ['id' => $tripId, 'seats' => 1])[0] === 403);
-check('administración borra el viaje', $admin->post('trip_delete', ['id' => $tripId])[0] === 200);
+check('administración borra el viaje', $admin->post('admin_trip', ['id' => $tripId, 'action' => 'delete'])[0] === 200);
+check('borrar el viaje cierra sus denuncias', $admin->get('admin_reports')[1]['items'] === []);
 $ids = array_column($driver->get('trips', '&mine=1')[1]['items'], 'id');
-check('un viaje borrado no aparece en ningún lado', !in_array($tripId, $ids, true), $ids);
+check('un viaje borrado no aparece en ningún lado', !in_array($tripId, $ids, true) && !in_array($tripId, $publicIds(), true), $ids);
+check('no se puede denunciar un viaje borrado', $anon->post('report', ['trip' => $tripId, 'reason' => 'otro'])[0] === 404);
+check('restaurar un viaje borrado', $admin->post('admin_trip', ['id' => $tripId, 'action' => 'restore'])[0] === 200 && in_array($tripId, $publicIds(), true));
+check('borrar desde la lista pública (moderación)', $admin->post('trip_delete', ['id' => $tripId])[0] === 200 && !in_array($tripId, $publicIds(), true));
 
 [$code, $body] = $driver->post('logout', []);
 $driver->csrf = $body['csrf'];
 check('cerrar sesión', $code === 200 && $driver->get('session')[1]['user'] === null);
+check('limita denuncias seguidas', count(array_filter(array_map(fn() => $anon->post('report', ['trip' => 'x', 'reason' => 'otro'])[0], range(1, 12)), fn($c) => $c === 429)) >= 1);
 check('contraseña incorrecta', $driver->post('login', ['email' => 'juan@example.com', 'password' => 'otra-clave-mala'])[0] === 401);
 [$code, $body] = $driver->post('login', ['email' => 'JUAN@example.com', 'password' => 'una-clave-de-prueba']);
 check('entrar de nuevo', $code === 200 && $body['user']['email'] === 'juan@example.com', $body);
