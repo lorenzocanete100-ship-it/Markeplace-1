@@ -36,6 +36,13 @@ php -S 127.0.0.1:8000 -t public     # abrir http://127.0.0.1:8000
 php tests/api_test.php              # correr las pruebas
 ```
 
+## Probar sin hosting
+
+`php demo/build.php > asiento-vacio-prueba.html` arma una sola página con la
+app y un servidor de mentira (`demo/mock-api.js`) que responde como `api.php`
+pero guarda todo en el navegador, con viajes de ejemplo. Sirve para probarla
+como artifact de Claude. El código de administración de prueba es `PRUEBA-2026`.
+
 ## Hostinger
 
 Está publicada en `public_html/viajes` de asientovacio.com.ar, clonada por
