@@ -36,12 +36,32 @@ php -S 127.0.0.1:8000 -t public     # abrir http://127.0.0.1:8000
 php tests/api_test.php              # correr las pruebas
 ```
 
-## Subir a Hostinger
+## Hostinger
 
-1. Copiá el contenido de `public/` dentro de `public_html` del dominio.
-2. Entrá a la página y creá tu cuenta.
-3. En `config.php`, poné tu correo en `admin_email`. Con esa cuenta vas a poder
-   borrar cualquier viaje que no corresponda.
+Está publicada en `public_html/viajes` de asientovacio.com.ar, clonada por
+Hostinger desde la rama `hostinger` de este repositorio (que tiene solo el
+contenido de `public/`).
+
+Para actualizarla después de cambiar algo:
+
+```
+git subtree split --prefix=asiento-vacio/public -b hostinger
+git push origin hostinger
+```
+
+y en hPanel → Avanzado → Git, "Deploy" sobre la carpeta `viajes`.
+
+Para que asientovacio.com.ar (sin `/viajes/`) abra la app, crear en
+`public_html` un archivo `.htaccess` con estas dos líneas (solo redirige la
+página principal, no el resto):
+
+```
+RewriteEngine On
+RewriteRule ^$ /viajes/ [R=302,L]
+```
+
+Para ser administrador (poder borrar viajes de otros), creá tu cuenta en la
+página y poné ese correo en `admin_email` de `config.php`.
 
 ## Aviso
 
