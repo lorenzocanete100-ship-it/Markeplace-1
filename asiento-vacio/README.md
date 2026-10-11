@@ -36,6 +36,18 @@ php -S 127.0.0.1:8000 -t public     # abrir http://127.0.0.1:8000
 php tests/api_test.php              # correr las pruebas
 ```
 
+## Verificación de perfiles (opcional)
+
+Conductores y acompañantes pueden crear una cuenta y, si quieren, mandar desde
+"Mi perfil" foto del DNI (frente y dorso) y una selfie con el DNI. La
+administración las revisa en Administrar → Verificaciones y aprueba o rechaza
+con un motivo. Las fotos se recodifican (se pierden los datos ocultos de la
+cámara, como la ubicación), se guardan en `asiento-vacio-datos/verificaciones`
+(fuera de `public_html`), solo las puede ver la administración y **se borran
+apenas se aprueban o rechazan**. Los perfiles verificados muestran la insignia
+"Perfil verificado" en sus viajes y en su perfil público (`#perfil-<id>`), y un
+acompañante verificado manda el enlace a su perfil en el WhatsApp al conductor.
+
 ## Probar sin hosting
 
 `php demo/build.php > asiento-vacio-prueba.html` arma una sola página con la

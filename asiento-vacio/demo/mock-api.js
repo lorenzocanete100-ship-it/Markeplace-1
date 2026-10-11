@@ -2,10 +2,16 @@
 // Servidor de mentira para probar Asiento Vacío sin hosting. Atiende los mismos
 // pedidos que api.php y con las mismas reglas, pero guarda todo en este navegador.
 (() => {
-  const KEY = 'asiento-vacio-prueba';
+  const KEY = 'asiento-vacio-prueba-2';
   const ADMIN_CODE = 'PRUEBA2026';
   const PRICE_WORDS = /\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/i;
   const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
+  const REJECT_REASONS = {
+    ilegible: 'Las fotos no se ven bien.',
+    datos: 'Los datos del DNI no coinciden con el nombre de tu cuenta.',
+    selfie: 'En la selfie no se ve tu cara junto al DNI.',
+    otro: 'No pudimos confirmar tu identidad.',
+  };
   const realFetch = window.fetch.bind(window);
 
   const now = () => Math.floor(Date.now() / 1000);
@@ -20,16 +26,50 @@
   const multiline = (v) => (typeof v === 'string' ? v.replace(/[ \t]+/g, ' ').trim() : '');
   const between = (v, min, max) => [...v].length >= min && [...v].length <= max;
 
+  // Fotos de ejemplo dibujadas acá mismo, para ver cómo se revisa una verificación.
+  function samplePhoto(label, tint, portrait) {
+    const canvas = document.createElement('canvas');
+    canvas.width = portrait ? 360 : 560;
+    canvas.height = portrait ? 480 : 350;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    ctx.fillStyle = tint;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#2b3445';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(14, 14, canvas.width - 28, canvas.height - 28);
+    ctx.fillStyle = '#2b3445';
+    ctx.font = 'bold 24px system-ui, sans-serif';
+    ctx.fillText('EJEMPLO', 34, 54);
+    ctx.font = '20px system-ui, sans-serif';
+    ctx.fillText(label, 34, 86);
+    ctx.beginPath();
+    ctx.ellipse(canvas.width * 0.3, canvas.height * 0.6, 60, 78, 0, 0, Math.PI * 2);
+    ctx.fill();
+    return canvas.toDataURL('image/jpeg', 0.8);
+  }
+
   function seed() {
     const day = today();
     const ts = now();
-    const user = (id, name, email, ago) => ({ id, email, name, password: '', is_admin: 0, blocked: 0, created: ts - ago * 86400 });
+    const user = (id, name, email, ago) => ({ id, email, name, password: '', is_admin: 0, blocked: 0, verified: 0, verified_at: 0, created: ts - ago * 86400 });
     const trip = (owner, origin, destination, inDays, hour, seats, driver, phone, vehicle, notes) => ({
       id: newId(), owner, origin, destination, day: addDays(day, inDays), hour, seats, driver, phone,
       phone_digits: phone.replace(/\D/g, ''), vehicle, notes, status: 'active', created: ts - (inDays + 1) * 5400,
     });
+    const photos = {
+      'ej-frente.jpg': samplePhoto('DNI de frente', '#d6e4f0', false),
+      'ej-dorso.jpg': samplePhoto('DNI de dorso', '#e2e8d6', false),
+      'ej-selfie.jpg': samplePhoto('Selfie con el DNI', '#f0d6c8', true),
+    };
     return {
-      users: [user('ej-marta', 'Marta', 'marta@ejemplo.com', 20), user('ej-diego', 'Diego', 'diego@ejemplo.com', 9), user('ej-rosa', 'Rosa', 'rosa@ejemplo.com', 3)],
+      users: [
+        { ...user('ej-marta', 'Marta', 'marta@ejemplo.com', 20), verified: 1, verified_at: ts - 12 * 86400 },
+        user('ej-diego', 'Diego', 'diego@ejemplo.com', 9),
+        user('ej-rosa', 'Rosa', 'rosa@ejemplo.com', 3),
+      ],
+      verifications: [{ id: 'ej-verif', user: 'ej-rosa', status: 'pending', reason: '', files: Object.keys(photos), created: ts - 7200, decided: 0 }],
+      photos,
       trips: [
         trip('ej-marta', 'Rosario', 'Buenos Aires', 0, '19:00', 2, 'Marta', '54 9 11 0000 1111', 'Fiat Cronos gris', 'Aviso de ejemplo.'),
         trip('ej-marta', 'González Catán', 'Córdoba', 1, '06:30', 3, 'Marta', '54 9 11 0000 1111', 'Fiat Cronos gris', 'Aviso de ejemplo. Salgo desde la plaza; hay lugar para un bolso por persona.'),
@@ -75,11 +115,39 @@
   const fail = (message, status) => { throw new Failure(message, status); };
 
   const userById = (id) => db.users.find((u) => u.id === id) || null;
-  const publicUser = (u) => (u ? { id: u.id, email: u.email, name: u.name, admin: u.is_admin === 1 } : null);
+  const publicUser = (u) => (u ? {
+    id: u.id, email: u.email, name: u.name, created: u.created,
+    admin: u.is_admin === 1, verified: u.verified === 1, verifiedAt: u.verified_at || 0,
+  } : null);
+  const dropPhotos = (files) => files.forEach((name) => { delete db.photos[name]; });
+
+  // Achica la foto elegida y la guarda como texto, para que entre en el almacenamiento del navegador.
+  async function storePhoto(file) {
+    if (!(file instanceof Blob) || !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 10 * 1024 * 1024) return null;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 800 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const name = `${newId()}.jpg`;
+      db.photos[name] = canvas.toDataURL('image/jpeg', 0.8);
+      return name;
+    } catch {
+      return null;
+    }
+  }
+
+  function photoResponse(dataUrl) {
+    const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
+    return new Response(new Blob([bytes], { type: 'image/jpeg' }), { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+  }
   const ownerOf = (trip) => userById(trip.owner) || {};
   const byDayHour = (a, b) => (a.day + a.hour).localeCompare(b.day + b.hour);
 
-  async function handle(action, mine, input) {
+  async function handle(action, params, input) {
+    const mine = params.get('mine') === '1';
     let user = db.uid ? userById(db.uid) : null;
     if (user && user.blocked === 1) {
       db.uid = null;
@@ -89,8 +157,9 @@
     const serialize = (trip) => {
       const { owner, ...rest } = trip;
       const own = Boolean(user && owner === user.id);
-      return { ...rest, mine: own, canDelete: own || isAdmin };
+      return { ...rest, driver_id: owner, driver_verified: ownerOf(trip).verified === 1, mine: own, canDelete: own || isAdmin };
     };
+    const requireUser = () => user || fail('Iniciá sesión.', 401);
     const ownTrip = () => {
       if (!user) fail('Iniciá sesión.', 401);
       const trip = db.trips.find((t) => t.id === input.id && t.status !== 'deleted');
@@ -122,7 +191,7 @@
           const name = clean(input.name);
           if (!between(name, 2, 80)) fail('Ingresá tu nombre (2 a 80 caracteres).');
           if (account) fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
-          account = { id: newId(), email, name, password: await digest(password), is_admin: 0, blocked: 0, created: now() };
+          account = { id: newId(), email, name, password: await digest(password), is_admin: 0, blocked: 0, verified: 0, verified_at: 0, created: now() };
           db.users.push(account);
         } else {
           if (!account || account.password !== await digest(password)) fail('Correo o contraseña incorrectos.', 401);
@@ -149,6 +218,7 @@
         const v = {};
         for (const k of ['origin', 'destination', 'day', 'hour', 'driver', 'phone', 'vehicle']) v[k] = clean(input[k]);
         v.notes = multiline(input.notes);
+        if (user.verified === 1) v.driver = user.name;
         if (input.confirmPrivate !== true || input.confirmPhone !== true) {
           fail('Confirmá que sos un particular que comparte gastos y que aceptás mostrar tu teléfono.');
         }
@@ -208,6 +278,76 @@
         return { ok: true };
       }
 
+      case 'profile': {
+        const profile = userById(params.get('id') || '');
+        if (!profile || profile.blocked === 1) fail('Perfil no encontrado.', 404);
+        const trips = db.trips.filter((t) => t.owner === profile.id && t.status === 'active' && t.day >= today()).sort(byDayHour);
+        return {
+          profile: { id: profile.id, name: profile.name, created: profile.created, verified: profile.verified === 1, verifiedAt: profile.verified_at || 0 },
+          trips: trips.map(serialize),
+        };
+      }
+
+      case 'verification': {
+        const me = requireUser();
+        const request = db.verifications.filter((v) => v.user === me.id).sort((a, b) => b.created - a.created)[0];
+        return { user: publicUser(me), request: request ? { status: request.status, reason: request.reason, created: request.created, decided: request.decided } : null };
+      }
+
+      case 'verify_request': {
+        const me = requireUser();
+        if (me.verified === 1) fail('Tu perfil ya está verificado.', 409);
+        if (db.verifications.some((v) => v.user === me.id && v.status === 'pending')) fail('Ya mandaste tus fotos: están en revisión.', 409);
+        if (input.consent !== '1') fail('Aceptá que la administración vea tus fotos para verificar tu perfil.');
+        const files = [];
+        for (const field of ['front', 'back', 'selfie']) {
+          const name = await storePhoto(input[field]);
+          if (!name) {
+            dropPhotos(files);
+            fail('Subí las tres fotos (DNI de frente, DNI de dorso y selfie con el DNI) en JPG, PNG o WebP, de hasta 10 MB cada una.');
+          }
+          files.push(name);
+        }
+        db.verifications.push({ id: newId(), user: me.id, status: 'pending', reason: '', files, created: now(), decided: 0 });
+        return { ok: true };
+      }
+
+      case 'verify_cancel': {
+        const me = requireUser();
+        const request = db.verifications.find((v) => v.user === me.id && v.status === 'pending');
+        if (request) {
+          dropPhotos(request.files);
+          Object.assign(request, { status: 'cancelled', files: [], decided: now() });
+        }
+        return { ok: true };
+      }
+
+      case 'admin_verifications':
+        return {
+          items: db.verifications.filter((v) => v.status === 'pending').sort((a, b) => a.created - b.created).map((v) => {
+            const u = userById(v.user);
+            return { id: v.id, created: v.created, files: v.files, user: u.id, name: u.name, email: u.email, member_since: u.created };
+          }),
+        };
+
+      case 'admin_photo': {
+        const name = params.get('file') || '';
+        const pending = db.verifications.some((v) => v.status === 'pending' && v.files.includes(name));
+        if (!pending || !db.photos[name]) fail('Foto no encontrada.', 404);
+        return photoResponse(db.photos[name]);
+      }
+
+      case 'admin_verification': {
+        const request = db.verifications.find((v) => v.id === input.id && v.status === 'pending');
+        if (!request) fail('Esa verificación ya fue revisada.', 404);
+        const reason = REJECT_REASONS[input.reason];
+        if (input.action !== 'approve' && !(input.action === 'reject' && reason)) fail('Elegí aprobar o rechazar con un motivo.');
+        dropPhotos(request.files);
+        Object.assign(request, { status: input.action === 'approve' ? 'approved' : 'rejected', reason: reason || '', files: [], decided: now() });
+        if (input.action === 'approve') Object.assign(userById(request.user), { verified: 1, verified_at: now() });
+        return { ok: true };
+      }
+
       case 'admin_claim': {
         if (!user) fail('Iniciá sesión.', 401);
         if (db.users.some((u) => u.is_admin === 1)) fail('La administración ya está activada. Pedile acceso a un administrador.', 409);
@@ -223,6 +363,7 @@
           week: db.trips.filter((t) => t.created >= weekAgo).length,
           drivers: db.users.length,
           reports: db.reports.filter((r) => r.status === 'open').length,
+          verifications: db.verifications.filter((v) => v.status === 'pending').length,
         };
       }
 
@@ -249,7 +390,7 @@
       case 'admin_users':
         return {
           items: [...db.users].sort((a, b) => b.created - a.created).map((u) => ({
-            id: u.id, email: u.email, name: u.name, created: u.created, is_admin: u.is_admin, blocked: u.blocked,
+            id: u.id, email: u.email, name: u.name, created: u.created, is_admin: u.is_admin, blocked: u.blocked, verified: u.verified,
             trips: db.trips.filter((t) => t.owner === u.id && t.status !== 'deleted').length,
           })),
         };
@@ -259,9 +400,12 @@
         if (!target) fail('Cuenta no encontrada.', 404);
         if (target.id === user.id && ['block', 'remove_admin'].includes(input.action)) fail('No podés hacerte eso a vos mismo.');
         if (input.action === 'block' && target.is_admin === 1) fail('Primero quitale la administración.');
-        const changes = { block: ['blocked', 1], unblock: ['blocked', 0], make_admin: ['is_admin', 1], remove_admin: ['is_admin', 0] }[input.action];
+        const changes = {
+          block: { blocked: 1 }, unblock: { blocked: 0 }, make_admin: { is_admin: 1 }, remove_admin: { is_admin: 0 },
+          unverify: { verified: 0, verified_at: 0 },
+        }[input.action];
         if (!changes) fail('Acción no válida.');
-        target[changes[0]] = changes[1];
+        Object.assign(target, changes);
         return { ok: true };
       }
 
@@ -282,16 +426,21 @@
     if (!url.startsWith('api.php')) return realFetch(resource, options);
     const params = new URL(url, 'https://prueba.local/').searchParams;
     let input = {};
-    try {
-      input = options.body ? JSON.parse(options.body) : {};
-    } catch {
-      input = {};
+    if (options.body instanceof FormData) {
+      input = Object.fromEntries(options.body.entries());
+    } else {
+      try {
+        input = options.body ? JSON.parse(options.body) : {};
+      } catch {
+        input = {};
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
     try {
-      const data = await handle(params.get('a') || '', params.get('mine') === '1', input || {});
+      const data = await handle(params.get('a') || '', params, input || {});
+      if (data instanceof Response) return data;
       save();
-      return reply(data, options.method === 'POST' && ['trip_create', 'report'].includes(params.get('a')) ? 201 : 200);
+      return reply(data, options.method === 'POST' && ['trip_create', 'report', 'verify_request'].includes(params.get('a')) ? 201 : 200);
     } catch (error) {
       if (error instanceof Failure) return reply({ error: error.message }, error.status);
       console.error(error);

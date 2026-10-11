@@ -50,6 +50,29 @@ final class Client
         return $this->request("api.php?a=$action", json_encode($body), $csrf ?? $this->csrf);
     }
 
+    public function upload(string $action, array $fields, array $files): array
+    {
+        foreach ($files as $field => $path) {
+            $fields[$field] = new CURLFile($path, 'image/jpeg');
+        }
+        $ch = curl_init("$this->base/api.php?a=$action");
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEJAR => $this->jar, CURLOPT_COOKIEFILE => $this->jar,
+            CURLOPT_HTTPHEADER => ["X-CSRF-Token: $this->csrf"], CURLOPT_POSTFIELDS => $fields,
+        ]);
+        $response = curl_exec($ch);
+        return [curl_getinfo($ch, CURLINFO_RESPONSE_CODE), json_decode((string)$response, true)];
+    }
+
+    // GET con la sesión de este cliente, devolviendo el contenido tal cual (para fotos).
+    public function bytes(string $path): array
+    {
+        $ch = curl_init("$this->base/$path");
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEJAR => $this->jar, CURLOPT_COOKIEFILE => $this->jar]);
+        $body = curl_exec($ch);
+        return [curl_getinfo($ch, CURLINFO_RESPONSE_CODE), $body, curl_getinfo($ch, CURLINFO_CONTENT_TYPE)];
+    }
+
     public function raw(string $path): array
     {
         $ch = curl_init("$this->base/$path");
@@ -224,6 +247,76 @@ check('un viaje borrado no aparece en ningún lado', !in_array($tripId, $ids, tr
 check('no se puede denunciar un viaje borrado', $anon->post('report', ['trip' => $tripId, 'reason' => 'otro'])[0] === 404);
 check('restaurar un viaje borrado', $admin->post('admin_trip', ['id' => $tripId, 'action' => 'restore'])[0] === 200 && in_array($tripId, $publicIds(), true));
 check('borrar desde la lista pública (moderación)', $admin->post('trip_delete', ['id' => $tripId])[0] === 200 && !in_array($tripId, $publicIds(), true));
+
+echo "Verificación de perfiles\n";
+$picture = function (int $width = 2400, int $height = 1500): string {
+    $file = tempnam(sys_get_temp_dir(), 'foto') . '.jpg';
+    $image = imagecreatetruecolor($width, $height);
+    imagefill($image, 0, 0, imagecolorallocate($image, 30, 90, 200));
+    imagejpeg($image, $file, 95);
+    return $file;
+};
+$fake = tempnam(sys_get_temp_dir(), 'falsa');
+file_put_contents($fake, 'esto no es una foto');
+$three = ['front' => $picture(), 'back' => $picture(), 'selfie' => $picture(900, 1200)];
+$stored = fn() => array_values(array_diff(scandir("$data/verificaciones") ?: [], ['.', '..']));
+
+$carla = new Client($base);
+[, $body] = $carla->register('pasajera@example.com', 'Carla');
+$carlaId = $body['user']['id'];
+check('verificar pide cuenta', $anon->upload('verify_request', ['consent' => '1'], $three)[0] === 401);
+[$code, $body] = $carla->get('verification');
+check('al principio el perfil no está verificado', $code === 200 && $body['user']['verified'] === false && $body['request'] === null, $body);
+check('pide aceptar que la administración vea las fotos', $carla->upload('verify_request', [], $three)[0] === 400);
+check('pide las tres fotos', $carla->upload('verify_request', ['consent' => '1'], ['front' => $three['front'], 'back' => $three['back']])[0] === 400);
+check('rechaza archivos que no son fotos', $carla->upload('verify_request', ['consent' => '1'], [...$three, 'back' => $fake])[0] === 400);
+check('si falla no deja fotos guardadas', $stored() === [], $stored());
+check('manda las fotos', $carla->upload('verify_request', ['consent' => '1'], $three)[0] === 201);
+check('queda en revisión', ($carla->get('verification')[1]['request']['status'] ?? '') === 'pending');
+check('no se manda dos veces mientras se revisa', $carla->upload('verify_request', ['consent' => '1'], $three)[0] === 409);
+$pending = $find($admin->get('admin_verifications')[1]['items'], 'email', 'pasajera@example.com');
+check('administración ve la solicitud con el nombre de la cuenta', $pending['name'] === 'Carla' && count($pending['files']) === 3, $pending);
+check('las fotos quedan fuera de la carpeta pública', count($stored()) === 3 && !is_dir("$root/verificaciones"), $stored());
+$photo = 'api.php?a=admin_photo&file=' . $pending['files'][0];
+check('sin cuenta no se ven las fotos', $anon->bytes($photo)[0] === 401);
+check('la misma persona no puede ver sus fotos', $carla->bytes($photo)[0] === 403);
+[$code, $jpeg, $type] = $admin->bytes($photo);
+$size = @getimagesizefromstring($jpeg);
+check('administración ve la foto, achicada y recodificada', $code === 200 && $type === 'image/jpeg' && $size[0] === 1600 && $size[1] === 1000, [$code, $type, $size]);
+check('no se puede pedir cualquier archivo', $admin->bytes('api.php?a=admin_photo&file=../viajes.sqlite')[0] === 404);
+check('el resumen cuenta verificaciones pendientes', $admin->get('admin_overview')[1]['verifications'] === 1);
+check('rechazar pide motivo', $admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'reject'])[0] === 400);
+check('rechazar con motivo', $admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'reject', 'reason' => 'ilegible'])[0] === 200);
+check('al rechazar se borran las fotos', $stored() === [] && $admin->bytes($photo)[0] === 404, $stored());
+$request = $carla->get('verification')[1]['request'];
+check('la persona ve el motivo', $request['status'] === 'rejected' && $request['reason'] === 'Las fotos no se ven bien.', $request);
+check('puede volver a intentar', $carla->upload('verify_request', ['consent' => '1'], $three)[0] === 201);
+$pending = $find($admin->get('admin_verifications')[1]['items'], 'email', 'pasajera@example.com');
+check('aprobar', $admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'approve'])[0] === 200);
+check('al aprobar también se borran las fotos', $stored() === [], $stored());
+check('el perfil queda verificado', $carla->get('session')[1]['user']['verified'] === true);
+check('una verificación revisada no se revisa de nuevo', $admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'approve'])[0] === 404);
+[$code, $body] = $anon->get('profile', "&id=$carlaId");
+check('perfil público con la insignia y sin correo', $code === 200 && $body['profile']['verified'] === true && $body['profile']['name'] === 'Carla' && !isset($body['profile']['email']), $body);
+check('perfil inexistente', $anon->get('profile', '&id=nada')[0] === 404);
+check('ya verificado no vuelve a pedir', $carla->upload('verify_request', ['consent' => '1'], $three)[0] === 409);
+
+$driver->upload('verify_request', ['consent' => '1'], $three);
+$pending = $find($admin->get('admin_verifications')[1]['items'], 'email', 'juan@example.com');
+$admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'approve']);
+$listing = $anon->get('trips')[1]['items'];
+$juanTrips = array_filter($listing, fn($t) => $t['driver_id'] === $juan['id']);
+$othersVerified = array_filter($listing, fn($t) => $t['driver_id'] !== $juan['id'] && $t['driver_verified']);
+check('los viajes de un conductor verificado muestran la insignia (y solo los suyos)', $juanTrips && !in_array(false, array_column($juanTrips, 'driver_verified'), true) && !$othersVerified, array_values($juanTrips));
+[$code, $body] = $driver->post('trip_create', [...$trip, 'driver' => 'Otro Nombre']);
+$newTrip = $find($anon->get('trips')[1]['items'], 'id', $body['id'] ?? '');
+check('verificado, el viaje sale con el nombre de la cuenta', $code === 201 && $newTrip['driver'] === 'Juan', $newTrip);
+check('administración puede quitar la verificación', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'unverify'])[0] === 200
+    && $driver->get('session')[1]['user']['verified'] === false
+    && !$find($anon->get('trips')[1]['items'], 'id', $newTrip['id'])['driver_verified']);
+$other->upload('verify_request', ['consent' => '1'], $three);
+check('cancelar una solicitud borra las fotos', count($stored()) === 3 && $other->post('verify_cancel', [])[0] === 200 && $stored() === []
+    && $other->get('verification')[1]['request']['status'] === 'cancelled');
 
 [$code, $body] = $driver->post('logout', []);
 $driver->csrf = $body['csrf'];
