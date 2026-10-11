@@ -23,6 +23,14 @@ const PRICE_WORDS = '/\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/iu';
 const MAX_DAYS_AHEAD = 180;
 const SESSION_DAYS = 7;
 const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
+const VERIFY_PHOTOS = ['front', 'back', 'selfie'];
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+const REJECT_REASONS = [
+    'ilegible' => 'Las fotos no se ven bien.',
+    'datos' => 'Los datos del DNI no coinciden con el nombre de tu cuenta.',
+    'selfie' => 'En la selfie no se ve tu cara junto al DNI.',
+    'otro' => 'No pudimos confirmar tu identidad.',
+];
 
 function respond(array $data, int $code = 200): never
 {
@@ -91,11 +99,17 @@ function connect(string $dir): PDO
           reason TEXT NOT NULL, details TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT \'open\', created INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created);
+        CREATE TABLE IF NOT EXISTS verifications (
+          id TEXT PRIMARY KEY, user TEXT NOT NULL REFERENCES users(id),
+          status TEXT NOT NULL DEFAULT \'pending\', reason TEXT NOT NULL DEFAULT \'\',
+          files TEXT NOT NULL DEFAULT \'[]\', created INTEGER NOT NULL, decided INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS idx_verifications_user ON verifications(user, created);
+        CREATE INDEX IF NOT EXISTS idx_verifications_status ON verifications(status, created);
         CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, hits INTEGER NOT NULL, expires INTEGER NOT NULL);
     ');
-    // Bases creadas antes de la sección de administración no tienen estas columnas.
+    // Bases creadas con versiones anteriores no tienen estas columnas.
     $columns = array_column($pdo->query('PRAGMA table_info(users)')->fetchAll(), 'name');
-    foreach (['is_admin', 'blocked'] as $column) {
+    foreach (['is_admin', 'blocked', 'verified', 'verified_at'] as $column) {
         if (!in_array($column, $columns, true)) {
             $pdo->exec("ALTER TABLE users ADD COLUMN $column INTEGER NOT NULL DEFAULT 0");
         }
@@ -151,12 +165,53 @@ function query(PDO $db, string $sql, array $params = []): PDOStatement
 
 function load_user(PDO $db, string $id): ?array
 {
-    return query($db, 'SELECT id,email,name,is_admin,blocked FROM users WHERE id=?', [$id])->fetch() ?: null;
+    return query($db, 'SELECT id,email,name,is_admin,blocked,verified,verified_at,created FROM users WHERE id=?', [$id])->fetch() ?: null;
 }
 
 function public_user(?array $user): ?array
 {
-    return $user ? ['id' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'admin' => (int)$user['is_admin'] === 1] : null;
+    return $user ? [
+        'id' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'created' => (int)$user['created'],
+        'admin' => (int)$user['is_admin'] === 1, 'verified' => (int)$user['verified'] === 1, 'verifiedAt' => (int)$user['verified_at'],
+    ] : null;
+}
+
+// Guarda una foto de verificación como JPEG nuevo: al recodificarla se pierden los
+// datos ocultos de la cámara (como la ubicación GPS). Devuelve null si no es una foto válida.
+function store_photo(array $file, string $folder): ?string
+{
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name']) || $file['size'] > MAX_PHOTO_BYTES) {
+        return null;
+    }
+    $info = @getimagesize($file['tmp_name']);
+    if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true) || $info[0] * $info[1] > 30_000_000) {
+        return null;
+    }
+    $image = @imagecreatefromstring((string)file_get_contents($file['tmp_name']));
+    if (!$image) {
+        return null;
+    }
+    if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
+        $turn = [3 => 180, 6 => -90, 8 => 90][(int)(@exif_read_data($file['tmp_name'])['Orientation'] ?? 1)] ?? 0;
+        if ($turn) {
+            $image = imagerotate($image, $turn, 0);
+        }
+    }
+    $scale = min(1, 1600 / max(imagesx($image), imagesy($image)));
+    if ($scale < 1) {
+        $image = imagescale($image, (int)round(imagesx($image) * $scale), (int)round(imagesy($image) * $scale));
+    }
+    $name = bin2hex(random_bytes(16)) . '.jpg';
+    return imagejpeg($image, "$folder/$name", 82) ? $name : null;
+}
+
+function delete_photos(string $folder, string $json): void
+{
+    foreach (json_decode($json, true) ?: [] as $name) {
+        if (is_string($name) && preg_match('/^[a-f0-9]{32}\.jpg$/', $name)) {
+            @unlink("$folder/$name");
+        }
+    }
 }
 
 try {
@@ -192,10 +247,16 @@ try {
         $user = null;
     }
     $isAdmin = $user && (int)$user['is_admin'] === 1;
+    $photos = "$dir/verificaciones";
     $serialize = function (array $row) use ($user, $isAdmin): array {
         $mine = $user && $row['owner'] === $user['id'];
+        $row['driver_id'] = $row['owner'];
+        $row['driver_verified'] = (int)($row['driver_verified'] ?? 0) === 1;
         unset($row['owner']);
         return [...$row, 'mine' => $mine, 'canDelete' => $mine || $isAdmin];
+    };
+    $requireUser = function () use ($user): array {
+        return $user ?? fail('Iniciá sesión.', 401);
     };
     $ownTrip = function () use ($db, $input, $user, $isAdmin, $action): array {
         if (!$user) {
@@ -270,10 +331,11 @@ try {
                     fail('Iniciá sesión.', 401);
                 }
                 // Primero los próximos viajes, al final los que ya pasaron.
-                $stmt = query($db, "SELECT * FROM trips WHERE owner=? AND status!='deleted' ORDER BY day < ?, day, hour LIMIT 300", [$user['id'], today()]);
+                $stmt = query($db, "SELECT t.*, u.verified AS driver_verified FROM trips t JOIN users u ON u.id=t.owner
+                    WHERE t.owner=? AND t.status!='deleted' ORDER BY t.day < ?, t.day, t.hour LIMIT 300", [$user['id'], today()]);
             } else {
                 // Los viajes pasados desaparecen solos; los completos quedan ocultos hasta que el conductor los reabra.
-                $stmt = query($db, "SELECT t.* FROM trips t JOIN users u ON u.id=t.owner
+                $stmt = query($db, "SELECT t.*, u.verified AS driver_verified FROM trips t JOIN users u ON u.id=t.owner
                     WHERE t.status='active' AND t.day>=? AND u.blocked=0 ORDER BY t.day, t.hour LIMIT 300", [today()]);
             }
             respond(['items' => array_map($serialize, $stmt->fetchAll())]);
@@ -287,6 +349,10 @@ try {
                 $v[$k] = clean($input[$k] ?? '');
             }
             $v['notes'] = multiline($input['notes'] ?? '');
+            if ((int)$user['verified'] === 1) {
+                // Con el perfil verificado, el viaje va con el nombre que se verificó.
+                $v['driver'] = $user['name'];
+            }
             if (($input['confirmPrivate'] ?? null) !== true || ($input['confirmPhone'] ?? null) !== true) {
                 fail('Confirmá que sos un particular que comparte gastos y que aceptás mostrar tu teléfono.');
             }
@@ -368,6 +434,63 @@ try {
                 [bin2hex(random_bytes(16)), $trip['id'], $reason, $details, time()]);
             respond(['ok' => true], 201);
 
+        case 'GET profile':
+            $row = query($db, 'SELECT id,name,verified,verified_at,created,blocked FROM users WHERE id=?', [(string)($_GET['id'] ?? '')])->fetch();
+            if (!$row || (int)$row['blocked'] === 1) {
+                fail('Perfil no encontrado.', 404);
+            }
+            $trips = query($db, "SELECT t.*, u.verified AS driver_verified FROM trips t JOIN users u ON u.id=t.owner
+                WHERE t.owner=? AND t.status='active' AND t.day>=? ORDER BY t.day, t.hour LIMIT 50", [$row['id'], today()])->fetchAll();
+            respond([
+                'profile' => ['id' => $row['id'], 'name' => $row['name'], 'created' => (int)$row['created'],
+                    'verified' => (int)$row['verified'] === 1, 'verifiedAt' => (int)$row['verified_at']],
+                'trips' => array_map($serialize, $trips),
+            ]);
+
+        case 'GET verification':
+            $me = $requireUser();
+            $request = query($db, 'SELECT status,reason,created,decided FROM verifications WHERE user=? ORDER BY created DESC LIMIT 1', [$me['id']])->fetch();
+            respond(['user' => public_user($me), 'request' => $request ?: null]);
+
+        case 'POST verify_request':
+            $me = $requireUser();
+            if ((int)$me['verified'] === 1) {
+                fail('Tu perfil ya está verificado.', 409);
+            }
+            if (query($db, "SELECT 1 FROM verifications WHERE user=? AND status='pending'", [$me['id']])->fetch()) {
+                fail('Ya mandaste tus fotos: están en revisión.', 409);
+            }
+            if (($_POST['consent'] ?? '') !== '1') {
+                fail('Aceptá que la administración vea tus fotos para verificar tu perfil.');
+            }
+            if (!limit($db, 'verify:' . $me['id'], 5, 86400)) {
+                fail('Hiciste muchos intentos hoy. Probá mañana.', 429);
+            }
+            if (!is_dir($photos) && !@mkdir($photos, 0700, true)) {
+                fail('El servidor no puede guardar las fotos.', 503);
+            }
+            $saved = [];
+            foreach (VERIFY_PHOTOS as $field) {
+                $name = isset($_FILES[$field]) && is_array($_FILES[$field]) ? store_photo($_FILES[$field], $photos) : null;
+                if ($name === null) {
+                    delete_photos($photos, json_encode($saved));
+                    fail('Subí las tres fotos (DNI de frente, DNI de dorso y selfie con el DNI) en JPG, PNG o WebP, de hasta 10 MB cada una.');
+                }
+                $saved[] = $name;
+            }
+            query($db, 'INSERT INTO verifications(id,user,files,created) VALUES (?,?,?,?)',
+                [bin2hex(random_bytes(16)), $me['id'], json_encode($saved), time()]);
+            respond(['ok' => true], 201);
+
+        case 'POST verify_cancel':
+            $me = $requireUser();
+            $request = query($db, "SELECT id,files FROM verifications WHERE user=? AND status='pending'", [$me['id']])->fetch();
+            if ($request) {
+                delete_photos($photos, $request['files']);
+                query($db, "UPDATE verifications SET status='cancelled', files='[]', decided=? WHERE id=?", [time(), $request['id']]);
+            }
+            respond(['ok' => true]);
+
         case 'POST admin_claim':
             if (!$user) {
                 fail('Iniciá sesión.', 401);
@@ -392,7 +515,43 @@ try {
                 'week' => $count('SELECT COUNT(*) FROM trips WHERE created>=?', [time() - 7 * 86400]),
                 'drivers' => $count('SELECT COUNT(*) FROM users'),
                 'reports' => $count("SELECT COUNT(*) FROM reports WHERE status='open'"),
+                'verifications' => $count("SELECT COUNT(*) FROM verifications WHERE status='pending'"),
             ]);
+
+        case 'GET admin_verifications':
+            $rows = query($db, "SELECT v.id, v.created, v.files, u.id AS user, u.name, u.email, u.created AS member_since
+                FROM verifications v JOIN users u ON u.id=v.user WHERE v.status='pending' ORDER BY v.created LIMIT 200")->fetchAll();
+            respond(['items' => array_map(fn($r) => [...$r, 'files' => json_decode($r['files'], true) ?: []], $rows)]);
+
+        case 'GET admin_photo':
+            // Las fotos solo existen mientras la verificación está pendiente y solo las ve la administración.
+            $name = (string)($_GET['file'] ?? '');
+            if (!preg_match('/^[a-f0-9]{32}\.jpg$/', $name) || !is_file("$photos/$name")
+                || !query($db, "SELECT 1 FROM verifications WHERE status='pending' AND files LIKE ?", ['%"' . $name . '"%'])->fetch()) {
+                fail('Foto no encontrada.', 404);
+            }
+            header('Content-Type: image/jpeg');
+            header('Content-Length: ' . filesize("$photos/$name"));
+            readfile("$photos/$name");
+            exit;
+
+        case 'POST admin_verification':
+            $request = query($db, "SELECT id,user,files FROM verifications WHERE id=? AND status='pending'", [(string)($input['id'] ?? '')])->fetch();
+            if (!$request) {
+                fail('Esa verificación ya fue revisada.', 404);
+            }
+            $do = $input['action'] ?? '';
+            $reason = REJECT_REASONS[$input['reason'] ?? ''] ?? null;
+            if ($do !== 'approve' && !($do === 'reject' && $reason)) {
+                fail('Elegí aprobar o rechazar con un motivo.');
+            }
+            delete_photos($photos, $request['files']);
+            query($db, "UPDATE verifications SET status=?, reason=?, files='[]', decided=? WHERE id=?",
+                [$do === 'approve' ? 'approved' : 'rejected', $reason ?? '', time(), $request['id']]);
+            if ($do === 'approve') {
+                query($db, 'UPDATE users SET verified=1, verified_at=? WHERE id=?', [time(), $request['user']]);
+            }
+            respond(['ok' => true]);
 
         case 'GET admin_reports':
             respond(['items' => query($db, "SELECT r.id, r.reason, r.details, r.created,
@@ -407,7 +566,7 @@ try {
                 FROM trips t JOIN users u ON u.id=t.owner ORDER BY t.created DESC LIMIT 500")->fetchAll()]);
 
         case 'GET admin_users':
-            respond(['items' => query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked,
+            respond(['items' => query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked, u.verified,
                     (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id AND t.status!='deleted') AS trips
                 FROM users u ORDER BY u.created DESC LIMIT 1000")->fetchAll()]);
 
@@ -438,7 +597,8 @@ try {
             if ($do === 'block' && (int)$target['is_admin'] === 1) {
                 fail('Primero quitale la administración.');
             }
-            $changes = ['block' => 'blocked=1', 'unblock' => 'blocked=0', 'make_admin' => 'is_admin=1', 'remove_admin' => 'is_admin=0'];
+            $changes = ['block' => 'blocked=1', 'unblock' => 'blocked=0', 'make_admin' => 'is_admin=1', 'remove_admin' => 'is_admin=0',
+                'unverify' => 'verified=0, verified_at=0'];
             if (!isset($changes[$do])) {
                 fail('Acción no válida.');
             }

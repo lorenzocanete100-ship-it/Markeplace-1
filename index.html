@@ -7,8 +7,8 @@
 <meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
 <meta name="theme-color" content="#0b6e4f">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/styles.css?v=3">
-<script src="assets/app.js?v=3" defer></script>
+<link rel="stylesheet" href="assets/styles.css?v=4">
+<script src="assets/app.js?v=4" defer></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true">
@@ -18,6 +18,8 @@
   <symbol id="i-fuel" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10m0 3h2a2 2 0 0 1 2 2v2a1.5 1.5 0 0 0 3 0V8.5L18 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-phone" viewBox="0 0 24 24"><path d="M5 4h3.5l1.7 4.2-2.2 1.4a11 11 0 0 0 6.4 6.4l1.4-2.2L20 15.5V19a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 0 0-7.4 12.7L3.5 20.5l4.4-1.1A8.5 8.5 0 1 0 12 3.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8.6c.3 2.9 2.6 5.3 5.5 6l1-1.4-1.9-1-1 .8a4.6 4.6 0 0 1-2.1-2.1l.8-1-1-1.9z" fill="currentColor"/></symbol>
+  <symbol id="i-verified" viewBox="0 0 24 24"><path d="M12 2.8 19 5.6v5.6c0 4.6-3 8.3-7 10-4-1.7-7-5.4-7-10V5.6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="m8.6 12 2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
 </svg>
 
 <header class="topbar">
@@ -28,7 +30,7 @@
       <a href="#mis-viajes" data-view="mis-viajes" class="only-user" hidden>Mis viajes</a>
       <a href="#admin" data-view="admin" class="only-admin" hidden>Administrar</a>
       <a href="#entrar" data-view="entrar" class="only-guest">Entrar</a>
-      <button type="button" class="nav-link only-user" id="logout" hidden>Salir</button>
+      <a href="#perfil" data-view="perfil" class="only-user" hidden>Mi perfil</a>
       <a href="#publicar" data-view="publicar" class="nav-cta">Publicar viaje</a>
     </nav>
   </div>
@@ -49,6 +51,7 @@
         <label>Hacia<input name="to" list="places" autocomplete="off" placeholder="Ciudad de destino"></label>
         <label>Fecha<input name="day" type="date"></label>
         <button type="reset" class="btn btn-ghost">Limpiar</button>
+        <label class="check only-verified"><input type="checkbox" name="verified"> Solo conductores con perfil verificado</label>
       </form>
       <datalist id="places"></datalist>
       <p class="count" id="count" aria-live="polite"></p>
@@ -148,12 +151,17 @@
         </div>
         <div class="tabs" role="tablist" id="admin-tabs">
           <button type="button" role="tab" data-tab="reports" aria-selected="true">Denuncias</button>
+          <button type="button" role="tab" data-tab="verifications" aria-selected="false">Verificaciones</button>
           <button type="button" role="tab" data-tab="trips" aria-selected="false">Viajes</button>
           <button type="button" role="tab" data-tab="users" aria-selected="false">Conductores</button>
         </div>
         <div class="admin-pane" id="pane-reports">
           <p class="muted">Avisos que la gente marcó desde la página. Si un viaje cobra un precio o parece un negocio, borralo y bloqueá al conductor.</p>
           <div class="rows" id="admin-reports"></div>
+        </div>
+        <div class="admin-pane" id="pane-verifications" hidden>
+          <p class="muted">Compará el nombre de la cuenta con el DNI y la cara de la selfie. Al aprobar o rechazar, las fotos se borran del servidor.</p>
+          <div class="rows" id="admin-verifications"></div>
         </div>
         <div class="admin-pane" id="pane-trips" hidden>
           <input type="search" class="filter" id="filter-trips" placeholder="Buscar por ciudad, conductor, teléfono o correo">
@@ -167,10 +175,61 @@
     </div>
   </section>
 
+  <section class="view" id="view-perfil" aria-labelledby="t-perfil" hidden>
+    <div class="wrap narrow">
+      <h1 id="t-perfil">Mi perfil</h1>
+      <div class="card profile">
+        <p class="profile-name"><strong id="me-name"></strong>
+          <span class="badge verified" id="me-badge" hidden><svg class="icon"><use href="#i-verified"/></svg>Perfil verificado</span></p>
+        <p class="muted" id="me-meta"></p>
+        <button type="button" class="btn btn-sm btn-ghost" id="logout">Cerrar sesión</button>
+      </div>
+
+      <section class="card verify" aria-labelledby="t-verify">
+        <h2 id="t-verify">Verificar mi perfil <span class="opt">(opcional)</span></h2>
+        <div id="verify-done" class="verify-state" hidden>
+          <p>Tu perfil está verificado. Cuando le escribas a un conductor por WhatsApp desde la página, el mensaje lleva el enlace a tu perfil para que vea la insignia.</p>
+          <label>Enlace a tu perfil<input id="me-link" readonly></label>
+          <button type="button" class="btn btn-sm btn-ghost" id="copy-link">Copiar enlace</button>
+        </div>
+        <div id="verify-pending" class="verify-state" hidden>
+          <p><strong>Tus fotos están en revisión.</strong> Cuando la administración las revise, el resultado aparece acá.</p>
+          <button type="button" class="btn btn-sm btn-ghost" id="verify-cancel">Cancelar y borrar mis fotos</button>
+        </div>
+        <p class="form-error" id="verify-rejected" hidden></p>
+        <form id="verify-form" class="verify-state" novalidate hidden>
+          <p>Si querés, verificá tu identidad para que conductores y acompañantes sepan que sos quien decís ser. Es opcional y gratis, y tu perfil muestra la insignia <strong>Perfil verificado</strong>.</p>
+          <label><span>1. Foto del DNI de frente</span><input type="file" name="front" accept="image/jpeg,image/png,image/webp" required></label>
+          <label><span>2. Foto del DNI de dorso</span><input type="file" name="back" accept="image/jpeg,image/png,image/webp" required></label>
+          <label><span>3. Selfie sosteniendo el DNI al lado de tu cara</span><input type="file" name="selfie" accept="image/jpeg,image/png,image/webp" required></label>
+          <p class="privacy"><svg class="icon"><use href="#i-lock"/></svg><span>Las fotos solo las ve la administración, se usan únicamente para verificar tu perfil y se borran apenas se revisan. El nombre de tu cuenta tiene que coincidir con el del DNI.</span></p>
+          <label class="check"><input type="checkbox" name="consent" value="1" required> Acepto que la administración vea estas fotos para verificar mi perfil.</label>
+          <p class="form-error" role="alert" hidden></p>
+          <button class="btn btn-big" type="submit">Mandar para verificar</button>
+        </form>
+      </section>
+    </div>
+  </section>
+
+  <section class="view" id="view-perfil-publico" aria-labelledby="pp-name" hidden>
+    <div class="wrap narrow">
+      <div class="card profile public">
+        <p class="eyebrow-ink">Perfil en Asiento Vacío</p>
+        <h1 id="pp-name"></h1>
+        <p><span class="badge verified" id="pp-verified" hidden><svg class="icon"><use href="#i-verified"/></svg>Perfil verificado</span>
+          <span class="badge off" id="pp-unverified" hidden>Perfil sin verificar</span></p>
+        <p class="muted" id="pp-meta"></p>
+      </div>
+      <h2 class="pp-title">Próximos viajes</h2>
+      <div class="trips one" id="pp-trips"></div>
+      <p class="muted" id="pp-empty" hidden>No tiene viajes publicados por ahora.</p>
+    </div>
+  </section>
+
   <section class="view" id="view-entrar" aria-labelledby="t-entrar" hidden>
     <div class="wrap narrow">
-      <h1 id="t-entrar">Cuenta de conductor</h1>
-      <p class="muted">Solo necesitás cuenta para publicar tus viajes. Para viajar no hace falta: llamá directo al conductor.</p>
+      <h1 id="t-entrar">Tu cuenta</h1>
+      <p class="muted">Con una cuenta podés publicar viajes y, si querés, verificar tu perfil. Para viajar no hace falta: llamá directo al conductor.</p>
       <div class="tabs" role="tablist">
         <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="login">Entrar</button>
         <button type="button" role="tab" id="tab-register" aria-selected="false" aria-controls="register">Crear cuenta</button>
@@ -212,7 +271,8 @@
     <p class="notes"></p>
     <p class="share"><svg class="icon"><use href="#i-fuel"/></svg>Sin tarifa · Se comparten combustible y alguna comida</p>
     <div class="contact">
-      <p class="driver">Conductor: <strong></strong></p>
+      <p class="driver">Conductor: <a class="driver-link"><strong></strong></a>
+        <span class="badge verified" hidden><svg class="icon"><use href="#i-verified"/></svg>Perfil verificado</span></p>
       <a class="phone"><svg class="icon"><use href="#i-phone"/></svg><span></span></a>
       <div class="actions">
         <a class="btn btn-call"><svg class="icon"><use href="#i-phone"/></svg>Llamar</a>
