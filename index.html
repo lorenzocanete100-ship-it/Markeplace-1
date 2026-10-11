@@ -26,6 +26,7 @@
     <nav class="nav" aria-label="Secciones">
       <a href="#viajes" data-view="viajes">Viajes</a>
       <a href="#mis-viajes" data-view="mis-viajes" class="only-user" hidden>Mis viajes</a>
+      <a href="#admin" data-view="admin" class="only-admin" hidden>Administrar</a>
       <a href="#entrar" data-view="entrar" class="only-guest">Entrar</a>
       <button type="button" class="nav-link only-user" id="logout" hidden>Salir</button>
       <a href="#publicar" data-view="publicar" class="nav-cta">Publicar viaje</a>
@@ -129,6 +130,43 @@
     </div>
   </section>
 
+  <section class="view" id="view-admin" aria-labelledby="t-admin" hidden>
+    <div class="wrap">
+      <h1 id="t-admin">Administrar</h1>
+      <form class="card form narrow" id="claim" hidden>
+        <p>Si sos el dueño del sitio, ingresá el código de administración. Solo se usa una vez: después, desde acá podés nombrar a otros administradores.</p>
+        <label>Código de administración<input name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX"></label>
+        <p class="form-error" role="alert" hidden></p>
+        <button class="btn btn-big" type="submit">Activar administración</button>
+      </form>
+      <div id="admin-panel" hidden>
+        <div class="stats">
+          <p class="stat"><strong id="st-upcoming">–</strong>viajes publicados</p>
+          <p class="stat"><strong id="st-week">–</strong>nuevos esta semana</p>
+          <p class="stat"><strong id="st-drivers">–</strong>conductores</p>
+          <p class="stat alert"><strong id="st-reports">–</strong>denuncias abiertas</p>
+        </div>
+        <div class="tabs" role="tablist" id="admin-tabs">
+          <button type="button" role="tab" data-tab="reports" aria-selected="true">Denuncias</button>
+          <button type="button" role="tab" data-tab="trips" aria-selected="false">Viajes</button>
+          <button type="button" role="tab" data-tab="users" aria-selected="false">Conductores</button>
+        </div>
+        <div class="admin-pane" id="pane-reports">
+          <p class="muted">Avisos que la gente marcó desde la página. Si un viaje cobra un precio o parece un negocio, borralo y bloqueá al conductor.</p>
+          <div class="rows" id="admin-reports"></div>
+        </div>
+        <div class="admin-pane" id="pane-trips" hidden>
+          <input type="search" class="filter" id="filter-trips" placeholder="Buscar por ciudad, conductor, teléfono o correo">
+          <div class="rows" id="admin-trips"></div>
+        </div>
+        <div class="admin-pane" id="pane-users" hidden>
+          <input type="search" class="filter" id="filter-users" placeholder="Buscar por nombre o correo">
+          <div class="rows" id="admin-users"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="view" id="view-entrar" aria-labelledby="t-entrar" hidden>
     <div class="wrap narrow">
       <h1 id="t-entrar">Cuenta de conductor</h1>
@@ -190,8 +228,31 @@
       </div>
       <button type="button" class="btn btn-ghost toggle"></button>
     </div>
-    <button type="button" class="link-danger delete" hidden>Borrar viaje</button>
+    <div class="trip-foot">
+      <button type="button" class="link-danger delete" hidden>Borrar viaje</button>
+      <button type="button" class="link-muted report">Denunciar aviso</button>
+    </div>
   </article>
 </template>
+
+<dialog id="report-dlg" aria-labelledby="t-report">
+  <form method="dialog" class="form" id="report-form">
+    <h2 id="t-report">Denunciar aviso</h2>
+    <p class="muted" id="report-trip"></p>
+    <fieldset>
+      <legend>¿Qué pasa con este viaje?</legend>
+      <label class="check"><input type="radio" name="reason" value="precio" required> Cobra un precio o parece un negocio</label>
+      <label class="check"><input type="radio" name="reason" value="datos"> El teléfono o los datos son falsos</label>
+      <label class="check"><input type="radio" name="reason" value="ofensivo"> Es ofensivo o peligroso</label>
+      <label class="check"><input type="radio" name="reason" value="otro"> Otro motivo</label>
+    </fieldset>
+    <label><span>Contanos más <span class="opt">(opcional)</span></span><textarea name="details" rows="3" maxlength="500"></textarea></label>
+    <p class="form-error" role="alert" hidden></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" value="cancel" id="report-cancel">Cancelar</button>
+      <button type="submit" class="btn" value="send">Enviar denuncia</button>
+    </div>
+  </form>
+</dialog>
 </body>
 </html>
