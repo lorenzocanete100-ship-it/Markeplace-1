@@ -220,20 +220,38 @@ $juan = $find($users, 'email', 'juan@example.com');
 $me = $find($users, 'email', 'duena@example.com');
 $ana = $find($users, 'email', 'otra@example.com');
 check('la lista de conductores cuenta sus viajes', $juan['trips'] === 2 && $me['is_admin'] === 1, [$juan, $me]);
-check('bloquear a un conductor', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block'])[0] === 200);
+check('suspender pide plazo y motivo', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block'])[0] === 400
+    && $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block', 'days' => 3, 'reason' => 'precio'])[0] === 400
+    && $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block', 'days' => 7, 'reason' => 'inventado'])[0] === 400);
+check('suspender 7 días por cobrar', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block', 'days' => 7, 'reason' => 'precio'])[0] === 200);
+$juanRow = $find($admin->get('admin_users')[1]['items'], 'id', $juan['id']);
+check('administración ve hasta cuándo y por qué', abs($juanRow['blocked_until'] - (time() + 7 * 86400)) < 60
+    && $juanRow['blocked_reason'] === 'Cobró un precio por el viaje o lo usó como negocio.', $juanRow);
 check('los viajes de un bloqueado no se ven', !in_array($tripId, $publicIds(), true));
 check('un bloqueado pierde la sesión', $driver->get('session')[1]['user'] === null);
 [$code, $body] = $driver->post('login', ['email' => 'juan@example.com', 'password' => 'una-clave-de-prueba']);
-check('un bloqueado no puede entrar', $code === 403 && $body['error'] === 'Tu cuenta está suspendida.', $body);
-check('desbloquear', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'unblock'])[0] === 200);
+check('al entrar ve hasta cuándo y el motivo', $code === 403
+    && $body['error'] === 'Tu cuenta está suspendida hasta el ' . date('d/m/Y \\a \\l\\a\\s H:i', $juanRow['blocked_until']) . '. Motivo: Cobró un precio por el viaje o lo usó como negocio.', $body);
+check('levantar la suspensión', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'unblock'])[0] === 200
+    && $find($admin->get('admin_users')[1]['items'], 'id', $juan['id'])['blocked_until'] === 0);
 check('desbloqueado, sus viajes vuelven', in_array($tripId, $publicIds(), true));
 [$code, $body] = $driver->post('login', ['email' => 'juan@example.com', 'password' => 'una-clave-de-prueba']);
 $driver->csrf = $body['csrf'] ?? $driver->csrf;
 check('desbloqueado, puede entrar', $code === 200, $body);
-check('no podés bloquearte a vos mismo', $admin->post('admin_user', ['id' => $me['id'], 'action' => 'block'])[0] === 400);
+check('no podés suspenderte a vos mismo', $admin->post('admin_user', ['id' => $me['id'], 'action' => 'block', 'days' => 7, 'reason' => 'otro'])[0] === 400);
+$flota = $find($users, 'email', 'flota@example.com');
+$admin->post('admin_user', ['id' => $flota['id'], 'action' => 'block', 'days' => 0, 'reason' => 'denuncias']);
+[$code, $body] = (new Client($base))->post('login', ['email' => 'flota@example.com', 'password' => 'una-clave-de-prueba']);
+check('suspensión sin fecha', $code === 403 && $body['error'] === 'Tu cuenta está suspendida. Motivo: Recibió varias denuncias.', $body);
+$admin->post('admin_user', ['id' => $flota['id'], 'action' => 'block', 'days' => 1, 'reason' => 'otro']);
+$db->prepare('UPDATE users SET blocked_until=? WHERE id=?')->execute([time() - 5, $flota['id']]);
+[$code, $body] = (new Client($base))->post('login', ['email' => 'flota@example.com', 'password' => 'una-clave-de-prueba']);
+$flotaRow = $find($admin->get('admin_users')[1]['items'], 'id', $flota['id']);
+check('cuando vence el plazo, la suspensión se levanta sola', $code === 200 && $flotaRow['blocked'] === 0 && $flotaRow['blocked_reason'] === '', [$body, $flotaRow]);
+check('la lista distingue conductores de acompañantes', $flotaRow['trips_total'] === 10 && $find($users, 'email', 'vieja@example.com')['trips_total'] === 0);
 check('no podés quitarte la administración', $admin->post('admin_user', ['id' => $me['id'], 'action' => 'remove_admin'])[0] === 400);
 check('nombrar otro administrador', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'make_admin'])[0] === 200 && $other->get('session')[1]['user']['admin'] === true);
-check('no se bloquea a un administrador', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'block'])[0] === 400);
+check('no se suspende a un administrador', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'block', 'days' => 7, 'reason' => 'otro'])[0] === 400);
 check('quitar la administración a otro', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'remove_admin'])[0] === 200 && $other->get('session')[1]['user']['admin'] === false);
 check('acción de usuario inventada', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'borrar'])[0] === 400);
 

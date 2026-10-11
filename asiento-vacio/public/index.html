@@ -7,8 +7,8 @@
 <meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
 <meta name="theme-color" content="#17409a">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/styles.css?v=5">
-<script src="assets/app.js?v=5" defer></script>
+<link rel="stylesheet" href="assets/styles.css?v=7">
+<script src="assets/app.js?v=7" defer></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true">
@@ -146,17 +146,17 @@
         <div class="stats">
           <p class="stat"><strong id="st-upcoming">–</strong>viajes publicados</p>
           <p class="stat"><strong id="st-week">–</strong>nuevos esta semana</p>
-          <p class="stat"><strong id="st-drivers">–</strong>conductores</p>
+          <p class="stat"><strong id="st-drivers">–</strong>usuarios</p>
           <p class="stat alert"><strong id="st-reports">–</strong>denuncias abiertas</p>
         </div>
         <div class="tabs" role="tablist" id="admin-tabs">
           <button type="button" role="tab" data-tab="reports" aria-selected="true">Denuncias</button>
           <button type="button" role="tab" data-tab="verifications" aria-selected="false">Verificaciones</button>
           <button type="button" role="tab" data-tab="trips" aria-selected="false">Viajes</button>
-          <button type="button" role="tab" data-tab="users" aria-selected="false">Conductores</button>
+          <button type="button" role="tab" data-tab="users" aria-selected="false">Usuarios</button>
         </div>
         <div class="admin-pane" id="pane-reports">
-          <p class="muted">Avisos que la gente marcó desde la página. Si un viaje cobra un precio o parece un negocio, borralo y bloqueá al conductor.</p>
+          <p class="muted">Avisos que la gente marcó desde la página. Si un viaje cobra un precio o parece un negocio, borralo y suspendé al conductor.</p>
           <div class="rows" id="admin-reports"></div>
         </div>
         <div class="admin-pane" id="pane-verifications" hidden>
@@ -168,7 +168,16 @@
           <div class="rows" id="admin-trips"></div>
         </div>
         <div class="admin-pane" id="pane-users" hidden>
-          <input type="search" class="filter" id="filter-users" placeholder="Buscar por nombre o correo">
+          <div class="filters">
+            <input type="search" class="filter" id="filter-users" placeholder="Buscar por nombre o correo">
+            <select class="filter" id="filter-role" aria-label="Qué usuarios mostrar">
+              <option value="">Todos los usuarios</option>
+              <option value="drivers">Solo conductores</option>
+              <option value="riders">Solo acompañantes</option>
+              <option value="suspended">Solo suspendidos</option>
+              <option value="verified">Solo verificados</option>
+            </select>
+          </div>
           <div class="rows" id="admin-users"></div>
         </div>
       </div>
@@ -294,6 +303,36 @@
     </div>
   </article>
 </template>
+
+<dialog id="suspend-dlg" aria-labelledby="t-suspend">
+  <form method="dialog" class="form" id="suspend-form">
+    <h2 id="t-suspend">Suspender cuenta</h2>
+    <p class="muted" id="suspend-who"></p>
+    <label>¿Por cuánto tiempo?
+      <select name="days" required>
+        <option value="1">1 día</option>
+        <option value="7" selected>7 días</option>
+        <option value="30">30 días</option>
+        <option value="0">Sin fecha (hasta que la levantes)</option>
+      </select>
+    </label>
+    <label><span>Motivo <span class="opt">(la persona lo ve al querer entrar)</span></span>
+      <select name="reason" required>
+        <option value="">Elegí un motivo…</option>
+        <option value="precio">Cobró un precio por el viaje o lo usó como negocio</option>
+        <option value="datos">Publicó datos falsos</option>
+        <option value="conducta">Tuvo una conducta ofensiva o peligrosa</option>
+        <option value="denuncias">Recibió varias denuncias</option>
+        <option value="otro">No cumplió las reglas del sitio</option>
+      </select>
+    </label>
+    <p class="muted">Mientras dure, no puede entrar y sus viajes no se ven. Cuando se cumple el plazo, se levanta sola.</p>
+    <div class="dlg-actions">
+      <button type="submit" value="no" class="btn btn-ghost" formnovalidate>Cancelar</button>
+      <button type="submit" value="yes" class="btn btn-danger">Suspender</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="ask-dlg" aria-labelledby="ask-text">
   <form method="dialog" class="form">

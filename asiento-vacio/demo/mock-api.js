@@ -6,6 +6,21 @@
   const ADMIN_CODE = 'PRUEBA2026';
   const PRICE_WORDS = /\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/i;
   const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
+  const SUSPEND_DAYS = [1, 7, 30, 0];
+  const SUSPEND_REASONS = {
+    precio: 'Cobró un precio por el viaje o lo usó como negocio.',
+    datos: 'Publicó datos falsos.',
+    conducta: 'Tuvo una conducta ofensiva o peligrosa.',
+    denuncias: 'Recibió varias denuncias.',
+    otro: 'No cumplió las reglas del sitio.',
+  };
+  const AR = { timeZone: 'America/Argentina/Buenos_Aires' };
+  const untilText = (seconds) => {
+    const date = new Date(seconds * 1000);
+    const day = new Intl.DateTimeFormat('es-AR', { ...AR, day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
+    const time = new Intl.DateTimeFormat('es-AR', { ...AR, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+    return ` hasta el ${day} a las ${time}`;
+  };
   const REJECT_REASONS = {
     ilegible: 'Las fotos no se ven bien.',
     datos: 'Los datos del DNI no coinciden con el nombre de tu cuenta.',
@@ -52,7 +67,7 @@
   function seed() {
     const day = today();
     const ts = now();
-    const user = (id, name, email, ago) => ({ id, email, name, password: '', is_admin: 0, blocked: 0, verified: 0, verified_at: 0, created: ts - ago * 86400 });
+    const user = (id, name, email, ago) => ({ id, email, name, password: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', verified: 0, verified_at: 0, created: ts - ago * 86400 });
     const trip = (owner, origin, destination, inDays, hour, seats, driver, phone, vehicle, notes) => ({
       id: newId(), owner, origin, destination, day: addDays(day, inDays), hour, seats, driver, phone,
       phone_digits: phone.replace(/\D/g, ''), vehicle, notes, status: 'active', created: ts - (inDays + 1) * 5400,
@@ -148,6 +163,9 @@
 
   async function handle(action, params, input) {
     const mine = params.get('mine') === '1';
+    // Las suspensiones con plazo se levantan solas cuando se cumple la fecha.
+    db.users.filter((u) => u.blocked === 1 && u.blocked_until && u.blocked_until <= now())
+      .forEach((u) => Object.assign(u, { blocked: 0, blocked_until: 0, blocked_reason: '' }));
     let user = db.uid ? userById(db.uid) : null;
     if (user && user.blocked === 1) {
       db.uid = null;
@@ -191,11 +209,14 @@
           const name = clean(input.name);
           if (!between(name, 2, 80)) fail('Ingresá tu nombre (2 a 80 caracteres).');
           if (account) fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
-          account = { id: newId(), email, name, password: await digest(password), is_admin: 0, blocked: 0, verified: 0, verified_at: 0, created: now() };
+          account = { id: newId(), email, name, password: await digest(password), is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', verified: 0, verified_at: 0, created: now() };
           db.users.push(account);
         } else {
           if (!account || account.password !== await digest(password)) fail('Correo o contraseña incorrectos.', 401);
-          if (account.blocked === 1) fail('Tu cuenta está suspendida.', 403);
+          if (account.blocked === 1) {
+            fail(`Tu cuenta está suspendida${account.blocked_until ? untilText(account.blocked_until) : ''}.`
+              + (account.blocked_reason ? ` Motivo: ${account.blocked_reason}` : ''), 403);
+          }
         }
         db.uid = account.id;
         return { csrf: 'prueba', user: publicUser(account) };
@@ -391,7 +412,9 @@
         return {
           items: [...db.users].sort((a, b) => b.created - a.created).map((u) => ({
             id: u.id, email: u.email, name: u.name, created: u.created, is_admin: u.is_admin, blocked: u.blocked, verified: u.verified,
+            blocked_until: u.blocked_until || 0, blocked_reason: u.blocked_reason || '',
             trips: db.trips.filter((t) => t.owner === u.id && t.status !== 'deleted').length,
+            trips_total: db.trips.filter((t) => t.owner === u.id).length,
           })),
         };
 
@@ -400,8 +423,14 @@
         if (!target) fail('Cuenta no encontrada.', 404);
         if (target.id === user.id && ['block', 'remove_admin'].includes(input.action)) fail('No podés hacerte eso a vos mismo.');
         if (input.action === 'block' && target.is_admin === 1) fail('Primero quitale la administración.');
+        if (input.action === 'block') {
+          const reason = SUSPEND_REASONS[input.reason];
+          if (!SUSPEND_DAYS.includes(input.days) || !reason) fail('Elegí cuánto dura la suspensión y el motivo.');
+          Object.assign(target, { blocked: 1, blocked_until: input.days ? now() + input.days * 86400 : 0, blocked_reason: reason });
+          return { ok: true };
+        }
         const changes = {
-          block: { blocked: 1 }, unblock: { blocked: 0 }, make_admin: { is_admin: 1 }, remove_admin: { is_admin: 0 },
+          unblock: { blocked: 0, blocked_until: 0, blocked_reason: '' }, make_admin: { is_admin: 1 }, remove_admin: { is_admin: 0 },
           unverify: { verified: 0, verified_at: 0 },
         }[input.action];
         if (!changes) fail('Acción no válida.');

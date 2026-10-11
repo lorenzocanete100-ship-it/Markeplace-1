@@ -82,9 +82,13 @@ RewriteRule ^$ /viajes/ [R=302,L]
 ## Administrar
 
 En `#admin` (menú "Administrar") hay un resumen, las denuncias que manda la
-gente desde cada viaje, la lista de todos los viajes (con borrar y restaurar) y
-la de conductores (bloquear, desbloquear y nombrar administradores). Un
-conductor bloqueado no puede entrar y sus viajes dejan de verse.
+gente desde cada viaje, las verificaciones pendientes, la lista de todos los
+viajes (con borrar y restaurar) y la de usuarios, con filtro por conductores,
+acompañantes, suspendidos o verificados. A cada usuario se lo puede suspender
+1, 7 o 30 días o sin fecha, con un motivo que ve al intentar entrar; mientras
+dura no puede entrar y sus viajes no se ven, y al cumplirse el plazo se levanta
+sola. También se puede nombrar o quitar administradores y quitar la
+verificación.
 
 La primera cuenta de administración se activa una sola vez con un código
 secreto: en `config.php` solo está su huella SHA-256. Para cambiar el código,
