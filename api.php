@@ -25,6 +25,14 @@ const SESSION_DAYS = 7;
 const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
 const VERIFY_PHOTOS = ['front', 'back', 'selfie'];
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+const SUSPEND_DAYS = [1, 7, 30, 0];  // 0: sin fecha, hasta que la administración la levante
+const SUSPEND_REASONS = [
+    'precio' => 'Cobró un precio por el viaje o lo usó como negocio.',
+    'datos' => 'Publicó datos falsos.',
+    'conducta' => 'Tuvo una conducta ofensiva o peligrosa.',
+    'denuncias' => 'Recibió varias denuncias.',
+    'otro' => 'No cumplió las reglas del sitio.',
+];
 const REJECT_REASONS = [
     'ilegible' => 'Las fotos no se ven bien.',
     'datos' => 'Los datos del DNI no coinciden con el nombre de tu cuenta.',
@@ -109,10 +117,20 @@ function connect(string $dir): PDO
     ');
     // Bases creadas con versiones anteriores no tienen estas columnas.
     $columns = array_column($pdo->query('PRAGMA table_info(users)')->fetchAll(), 'name');
-    foreach (['is_admin', 'blocked', 'verified', 'verified_at'] as $column) {
+    $added = [
+        'is_admin' => 'INTEGER NOT NULL DEFAULT 0', 'blocked' => 'INTEGER NOT NULL DEFAULT 0',
+        'verified' => 'INTEGER NOT NULL DEFAULT 0', 'verified_at' => 'INTEGER NOT NULL DEFAULT 0',
+        'blocked_until' => 'INTEGER NOT NULL DEFAULT 0', 'blocked_reason' => "TEXT NOT NULL DEFAULT ''",
+    ];
+    foreach ($added as $column => $type) {
         if (!in_array($column, $columns, true)) {
-            $pdo->exec("ALTER TABLE users ADD COLUMN $column INTEGER NOT NULL DEFAULT 0");
+            $pdo->exec("ALTER TABLE users ADD COLUMN $column $type");
         }
+    }
+    // Las suspensiones con plazo se levantan solas cuando se cumple la fecha.
+    $now = time();
+    if ($pdo->query("SELECT 1 FROM users WHERE blocked=1 AND blocked_until>0 AND blocked_until<=$now LIMIT 1")->fetch()) {
+        $pdo->exec("UPDATE users SET blocked=0, blocked_until=0, blocked_reason='' WHERE blocked=1 AND blocked_until>0 AND blocked_until<=$now");
     }
     return $pdo;
 }
@@ -312,12 +330,14 @@ try {
                     fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
                 }
             } else {
-                $row = query($db, 'SELECT id,password,blocked FROM users WHERE email=?', [$email])->fetch();
+                $row = query($db, 'SELECT id,password,blocked,blocked_until,blocked_reason FROM users WHERE email=?', [$email])->fetch();
                 if (!$row || !password_verify($password, $row['password'])) {
                     fail('Correo o contraseña incorrectos.', 401);
                 }
                 if ((int)$row['blocked'] === 1) {
-                    fail('Tu cuenta está suspendida.', 403);
+                    $until = (int)$row['blocked_until'];
+                    fail('Tu cuenta está suspendida' . ($until ? date(' \h\a\s\t\a \e\l d/m/Y \a \l\a\s H:i', $until) : '') . '.'
+                        . ($row['blocked_reason'] !== '' ? ' Motivo: ' . $row['blocked_reason'] : ''), 403);
                 }
                 $uid = $row['id'];
             }
@@ -567,7 +587,9 @@ try {
 
         case 'GET admin_users':
             respond(['items' => query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked, u.verified,
-                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id AND t.status!='deleted') AS trips
+                    u.blocked_until, u.blocked_reason,
+                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id AND t.status!='deleted') AS trips,
+                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total
                 FROM users u ORDER BY u.created DESC LIMIT 1000")->fetchAll()]);
 
         case 'POST admin_trip':
@@ -597,8 +619,18 @@ try {
             if ($do === 'block' && (int)$target['is_admin'] === 1) {
                 fail('Primero quitale la administración.');
             }
-            $changes = ['block' => 'blocked=1', 'unblock' => 'blocked=0', 'make_admin' => 'is_admin=1', 'remove_admin' => 'is_admin=0',
-                'unverify' => 'verified=0, verified_at=0'];
+            if ($do === 'block') {
+                $days = $input['days'] ?? null;
+                $reason = SUSPEND_REASONS[$input['reason'] ?? ''] ?? null;
+                if (!in_array($days, SUSPEND_DAYS, true) || $reason === null) {
+                    fail('Elegí cuánto dura la suspensión y el motivo.');
+                }
+                query($db, 'UPDATE users SET blocked=1, blocked_until=?, blocked_reason=? WHERE id=?',
+                    [$days ? time() + $days * 86400 : 0, $reason, $target['id']]);
+                respond(['ok' => true]);
+            }
+            $changes = ['unblock' => "blocked=0, blocked_until=0, blocked_reason=''", 'make_admin' => 'is_admin=1',
+                'remove_admin' => 'is_admin=0', 'unverify' => 'verified=0, verified_at=0'];
             if (!isset($changes[$do])) {
                 fail('Acción no válida.');
             }

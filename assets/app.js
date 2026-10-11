@@ -438,6 +438,7 @@ function showTripsOf(email) {
 
 function showUser(email) {
   $('#filter-users').value = email;
+  $('#filter-role').value = '';
   renderUsers();
   selectAdminTab('users');
 }
@@ -461,7 +462,7 @@ function tripBadges(trip) {
     trip.status === 'deleted' ? badge('Borrado', 'off')
       : trip.day < state.today ? badge('Ya pasó', 'off')
         : trip.status === 'full' ? badge('Completo', 'warn') : badge('Publicado'),
-    Number(trip.owner_blocked) === 1 && badge('Conductor bloqueado', 'bad'),
+    Number(trip.owner_blocked) === 1 && badge('Conductor suspendido', 'bad'),
     reports > 0 && badge(reports === 1 ? '1 denuncia' : `${reports} denuncias`, 'bad'),
   ];
 }
@@ -483,9 +484,21 @@ function renderAdminTrips() {
   $('#admin-trips').replaceChildren(...(rows.length ? rows : [emptyRow('No hay viajes que coincidan.')]));
 }
 
+const ROLE_FILTERS = {
+  drivers: (u) => Number(u.trips_total) > 0,
+  riders: (u) => Number(u.trips_total) === 0,
+  suspended: (u) => Number(u.blocked) === 1,
+  verified: (u) => Number(u.verified) === 1,
+};
+const until = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const suspendedBadge = (u) => badge(Number(u.blocked_until)
+  ? `Suspendido hasta el ${until.format(new Date(u.blocked_until * 1000)).replace(/\./g, '')}`
+  : 'Suspendido sin fecha', 'bad');
+
 function renderUsers() {
   const q = normalize($('#filter-users').value);
-  const list = admin.users.filter((u) => !q || normalize(`${u.name} ${u.email}`).includes(q));
+  const role = ROLE_FILTERS[$('#filter-role').value] || (() => true);
+  const list = admin.users.filter((u) => (!q || normalize(`${u.name} ${u.email}`).includes(q)) && role(u));
   const rows = list.map((u) => {
     const self = u.id === state.user.id;
     const isAdmin = Number(u.is_admin) === 1;
@@ -493,16 +506,18 @@ function renderUsers() {
     const verified = Number(u.verified) === 1;
     const trips = Number(u.trips);
     return el('article', { className: 'item' },
-      el('div', { className: 'badges' }, isAdmin && badge('Administración'), verified && badge('Verificado', 'verified'),
-        blocked && badge('Bloqueado', 'bad'), self && badge('Vos', 'off')),
+      el('div', { className: 'badges' },
+        badge(Number(u.trips_total) > 0 ? 'Conductor' : 'Acompañante', 'off'),
+        isAdmin && badge('Administración'), verified && badge('Verificado', 'verified'),
+        blocked && suspendedBadge(u), self && badge('Vos', 'off')),
       el('p', { className: 'item-title', textContent: u.name }),
       el('p', { className: 'item-meta', textContent: `${u.email} · desde el ${when(u.created)} · ${trips === 1 ? '1 viaje' : `${trips} viajes`}` }),
+      blocked && u.blocked_reason && el('p', { className: 'item-reason', textContent: `Motivo: ${u.blocked_reason}` }),
       el('div', { className: 'item-actions' },
         button('Ver viajes', () => showTripsOf(u.email)),
         !self && !isAdmin && (blocked
-          ? button('Desbloquear', () => adminAction('admin_user', { id: u.id, action: 'unblock' }, { done: 'Cuenta desbloqueada.' }))
-          : button('Bloquear', () => adminAction('admin_user', { id: u.id, action: 'block' },
-            { question: `¿Bloquear a ${u.name}? Sus viajes dejan de verse y no va a poder entrar.`, ok: 'Bloquear', done: 'Cuenta bloqueada.' }), 'btn-danger')),
+          ? button('Levantar suspensión', () => adminAction('admin_user', { id: u.id, action: 'unblock' }, { done: 'Suspensión levantada.' }))
+          : button('Suspender', () => openSuspend(u), 'btn-danger')),
         !self && !blocked && (isAdmin
           ? button('Quitar administración', () => adminAction('admin_user', { id: u.id, action: 'remove_admin' }, { done: 'Ya no es administrador.' }))
           : button('Hacer administrador', () => adminAction('admin_user', { id: u.id, action: 'make_admin' },
@@ -510,7 +525,22 @@ function renderUsers() {
         verified && button('Quitar verificación', () => adminAction('admin_user', { id: u.id, action: 'unverify' },
           { question: `¿Quitarle la insignia de perfil verificado a ${u.name}?`, ok: 'Quitar verificación', done: 'Ya no figura como verificado.' }))));
   });
-  $('#admin-users').replaceChildren(...(rows.length ? rows : [emptyRow('No hay conductores que coincidan.')]));
+  $('#admin-users').replaceChildren(...(rows.length ? rows : [emptyRow('No hay usuarios que coincidan.')]));
+}
+
+function openSuspend(u) {
+  const dialog = $('#suspend-dlg');
+  const form = $('#suspend-form');
+  form.reset();
+  $('#suspend-who').textContent = `${u.name} · ${u.email}`;
+  dialog.returnValue = '';
+  dialog.showModal();
+  dialog.addEventListener('close', () => {
+    if (dialog.returnValue !== 'yes') return;
+    const days = Number(form.days.value);
+    adminAction('admin_user', { id: u.id, action: 'block', days, reason: form.reason.value },
+      { done: days ? `Cuenta suspendida por ${days === 1 ? '1 día' : `${days} días`}.` : 'Cuenta suspendida sin fecha.' });
+  }, { once: true });
 }
 
 function renderVerifications(items) {
@@ -714,6 +744,7 @@ async function init() {
   });
   $('#filter-trips').addEventListener('input', renderAdminTrips);
   $('#filter-users').addEventListener('input', renderUsers);
+  $('#filter-role').addEventListener('change', renderUsers);
   $('#verify-form').addEventListener('submit', sendVerification);
   $('#verify-cancel').addEventListener('click', cancelVerification);
   $('#copy-link').addEventListener('click', copyProfileLink);
