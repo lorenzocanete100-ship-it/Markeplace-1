@@ -45,7 +45,15 @@ Cualquier persona con cuenta puede calificar a otra desde su perfil público
 estrellas y un comentario corto opcional. Hay una sola calificación por par de
 personas (si se vuelve a calificar, se reemplaza) y se puede borrar. El promedio
 aparece en cada viaje y en el perfil, y la búsqueda tiene el filtro "Solo
-conductores con 4 estrellas o más". No se pide DNI ni ningún documento.
+conductores con 4 estrellas o más" (pide al menos 3 opiniones). No se pide DNI
+ni ningún documento.
+
+Cuando alguien toca Llamar o WhatsApp en un viaje, ese conductor queda en "Mi
+perfil → Conductores que contactaste" (guardado solo en ese teléfono), así lo
+puede calificar después aunque el viaje ya no se vea. Para que no se llene un
+perfil de estrellas con cuentas inventadas, hay un límite de calificaciones por
+día por cuenta y por conexión, y en Administrar → Calificaciones se marcan las
+hechas con cuentas de menos de una semana.
 
 ## Ingreso con Google
 
@@ -60,9 +68,17 @@ activarlo hace falta un "ID de cliente" de Google (es gratis):
 3. Copiar el ID (termina en `.apps.googleusercontent.com`) y pegarlo en
    Administrar → Ajustes.
 
-Si alguien ya tenía cuenta con el mismo correo, queda unida a la de Google y su
-contraseña anterior deja de servir. El sitio comprueba la firma de Google por su
-cuenta, sin librerías extra.
+Si alguien ya tenía cuenta con un correo de Gmail (o de una empresa que usa
+Google), al entrar con Google queda unida a esa cuenta: la contraseña anterior
+deja de servir y se cierran las sesiones que estaban abiertas. Con otros correos
+(Hotmail, Yahoo, etc.) no se une sola: hay que seguir entrando con la contraseña.
+El sitio comprueba la firma de Google por su cuenta, sin librerías extra (hace
+falta que PHP pueda bajar archivos por HTTPS, como en Hostinger).
+
+Las cuentas de Google no tienen contraseña, así que una vez que alguien entró
+con Google, Ajustes no deja apagar el ingreso con Google (sí cambiar el ID).
+
+Cada uno puede cambiar en "Mi perfil" el nombre que ven los demás.
 
 ## Fotos de perfil
 

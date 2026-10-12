@@ -318,6 +318,8 @@ check('solo administración cambia los ajustes', $other->post('admin_settings', 
 check('rechaza un ID de cliente mal copiado', $admin->post('admin_settings', ['googleClientId' => 'mi-id-de-google'])[0] === 400);
 check('guardar el ID de cliente', $admin->post('admin_settings', ['googleClientId' => " " . CLIENT_ID . " "])[0] === 200
     && $admin->get('admin_settings')[1]['googleClientId'] === CLIENT_ID && $anon->get('session')[1]['googleClientId'] === CLIENT_ID);
+check('mientras nadie entró con Google, se puede apagar', $admin->post('admin_settings', ['googleClientId' => ''])[0] === 200
+    && $anon->get('session')[1]['googleClientId'] === '' && $admin->post('admin_settings', ['googleClientId' => CLIENT_ID])[0] === 200);
 $otherKey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
 $bad = [
     'un texto cualquiera' => 'no-es-un-comprobante',
@@ -348,11 +350,31 @@ check('con Google se crea la cuenta sola', $code === 200 && $body['user']['name'
 check('la segunda vez entra a la misma cuenta', $code === 200 && $body['user']['id'] === $gabiId && $body['user']['name'] === 'Gabriela Gómez', $body);
 $users = $admin->get('admin_users')[1]['items'];
 check('administración ve que la cuenta es de Google', $find($users, 'id', $gabiId)['google'] === 1 && $find($users, 'email', 'juan@example.com')['google'] === 0);
-[$code, $body] = (new Client($base))->post('google', ['credential' => $googleToken(['sub' => '555000111', 'email' => 'otra@example.com', 'name' => 'Ana G'])]);
-check('si ya tenía cuenta con ese correo, se une a esa cuenta', $code === 200 && $body['user']['id'] === $ana['id'] && $body['user']['name'] === 'Ana', $body);
+$anaToken = fn(array $claims = []) => $googleToken(['sub' => '555000111', 'email' => 'otra@example.com', 'name' => 'Ana García', ...$claims]);
+[$code, $body] = (new Client($base))->post('google', ['credential' => $anaToken()]);
+check('un correo que Google no administra no se une a una cuenta con contraseña', $code === 409 && str_contains($body['error'], 'contraseña')
+    && $other->get('session')[1]['user']['id'] === $ana['id'], $body);
+check('tampoco con un dominio de Google Workspace que no es el del correo', (new Client($base))->post('google', ['credential' => $anaToken(['hd' => 'otro.com'])])[0] === 409);
+[$code, $body] = (new Client($base))->post('google', ['credential' => $anaToken(['hd' => 'Example.com'])]);
+check('si Google administra el correo y ya tenía cuenta, se une a esa cuenta con el nombre de Google',
+    $code === 200 && $body['user']['id'] === $ana['id'] && $body['user']['name'] === 'Ana García', $body);
+check('al unir la cuenta se cierran las sesiones que estaban abiertas', $other->get('session')[1]['user'] === null
+    && $other->post('trip_create', $trip)[0] === 401);
 [$code, $body] = (new Client($base))->post('login', ['email' => 'otra@example.com', 'password' => 'una-clave-de-prueba']);
 check('después entra con Google y la contraseña vieja deja de servir', $code === 401 && str_contains($body['error'], 'Continuar con Google'), $body);
-check('otra cuenta de Google con el mismo correo no entra', (new Client($base))->post('google', ['credential' => $googleToken(['sub' => '777', 'email' => 'otra@example.com'])])[0] === 409);
+[, $body] = (new Client($base))->post('google', ['credential' => $googleToken(['sub' => '888', 'email' => 'juan.perez.1985@gmail.com', 'name' => 'J'])]);
+check('si Google no da un nombre, no se usa el correo', ($body['user']['name'] ?? '') === 'Usuario de Google', $body);
+[, $body] = (new Client($base))->post('google', ['credential' => $googleToken(['sub' => '889', 'email' => 'pato.99@gmail.com', 'name' => null, 'given_name' => 'Pato'])]);
+check('o se usa el nombre de pila', ($body['user']['name'] ?? '') === 'Pato', $body);
+[$code, $body] = $admin->post('admin_settings', ['googleClientId' => '']);
+check('con cuentas de Google, no se puede apagar (no podrían entrar)', $code === 409 && str_contains($body['error'], 'cuentas entran con Google')
+    && $anon->get('session')[1]['googleClientId'] === CLIENT_ID, $body);
+check('pero se puede cambiar por otro ID', $admin->post('admin_settings', ['googleClientId' => '98765432100-otroproyecto1.apps.googleusercontent.com'])[0] === 200
+    && $admin->post('admin_settings', ['googleClientId' => CLIENT_ID])[0] === 200);
+check('otra cuenta de Google con el mismo correo no entra', (new Client($base))->post('google', ['credential' => $anaToken(['sub' => '777', 'hd' => 'example.com'])])[0] === 409);
+[, $body] = $other->post('google', ['credential' => $anaToken()]);
+$other->csrf = $body['csrf'] ?? $other->csrf;
+check('una vez unida, entra con Google aunque el correo no sea de Gmail', $other->get('session')[1]['user']['id'] === $ana['id']);
 $admin->post('admin_user', ['id' => $gabiId, 'action' => 'block', 'days' => 7, 'reason' => 'conducta']);
 [$code, $body] = (new Client($base))->post('google', ['credential' => $googleToken()]);
 check('suspendida, tampoco entra con Google', $code === 403 && str_contains($body['error'], 'Motivo: Tuvo una conducta'), $body);
@@ -393,6 +415,7 @@ check('borrar la propia calificación', $code === 200 && $after['rating'] == 4 &
 check('los usuarios comunes no ven todas las calificaciones', $gabi->get('admin_ratings')[0] === 403);
 $rating = $find($admin->get('admin_ratings')[1]['items'], 'rater_id', $gabiId);
 check('administración ve quién calificó a quién', $rating['rated_id'] === $juan['id'] && $rating['rater_email'] === 'gabi.gomez@gmail.com' && $rating['stars'] === 4, $rating);
+check('y si quien calificó entra con Google y desde cuándo tiene la cuenta', $rating['rater_google'] === 1 && $rating['rater_created'] > time() - 600, $rating);
 check('administración borra una calificación', $admin->post('admin_rating', ['id' => $rating['id'], 'action' => 'delete'])[0] === 200
     && $admin->post('admin_rating', ['id' => $rating['id'], 'action' => 'delete'])[0] === 404);
 $profile = $profileOf($anon, $juan['id']);
@@ -400,6 +423,15 @@ check('sin calificaciones el promedio queda vacío', $profile['profile']['rating
 check('administración ve el promedio de cada usuario', array_key_exists('user_rating', $find($admin->get('admin_users')[1]['items'], 'id', $juan['id'])));
 [$code, $body] = $driver->post('trip_create', [...$trip, 'driver' => 'Otro Nombre']);
 check('el viaje sale con el nombre de la cuenta', $code === 201 && $find($anon->get('trips')[1]['items'], 'id', $body['id'] ?? '')['driver'] === 'Juan');
+$db->prepare('UPDATE trips SET driver=? WHERE id=?')->execute(['Nombre Escrito a Mano', $body['id']]);
+check('los viajes viejos con otro nombre muestran el de la cuenta', $find($anon->get('trips')[1]['items'], 'id', $body['id'])['driver'] === 'Juan'
+    && $find($admin->get('admin_trips')[1]['items'], 'id', $body['id'])['driver'] === 'Juan');
+check('cambiar el nombre pide cuenta', $anon->post('profile_name', ['name' => 'Alguien'])[0] === 401);
+check('rechaza un nombre muy corto', $driver->post('profile_name', ['name' => ' J '])[0] === 400);
+[$code, $body] = $driver->post('profile_name', ['name' => '  Juan   Carlos ']);
+check('cambiar el nombre', $code === 200 && $body['user']['name'] === 'Juan Carlos' && $profileOf($anon, $juan['id'])['profile']['name'] === 'Juan Carlos', $body);
+check('los viajes salen con el nombre nuevo', $find($anon->get('trips')[1]['items'], 'driver_id', $juan['id'])['driver'] === 'Juan Carlos');
+$driver->post('profile_name', ['name' => 'Juan']);
 $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block', 'days' => 7, 'reason' => 'otro']);
 check('no se califica a una cuenta suspendida', $gabi->post('rate', ['user' => $juan['id'], 'stars' => 1])[0] === 404
     && $anon->get('profile', '&id=' . $juan['id'])[0] === 404);
@@ -486,6 +518,48 @@ foreach (array_unique($assets[1]) as $asset) {
     check("existe $asset", $anon->raw(strtok($asset, '?'))[0] === 200);
 }
 check('los datos quedan fuera de la carpeta pública', is_file("$data/viajes.sqlite") && !is_file("$root/viajes.sqlite"));
+
+echo "Actualización con varias visitas a la vez\n";
+// Justo después de subir la versión nueva, varios pedidos pueden encontrar la base vieja al mismo tiempo:
+// 10 procesos abren a la vez una base del formato anterior y todos tienen que poder usarla (20 veces).
+$worker = <<<'PHP'
+[, $api, $dir, $at] = $argv;
+$src = file_get_contents($api);
+$start = strpos($src, 'function connect(');
+eval(substr($src, $start, strpos($src, 'function start_session(') - $start));
+time_sleep_until((float)$at);
+try {
+    connect($dir);
+    echo 'ok';
+} catch (Throwable $error) {
+    echo $error->getMessage();
+}
+PHP;
+$errors = [];
+for ($round = 0; $round < 20; $round++) {
+    $oldData = "$data-vieja-$round";
+    mkdir($oldData);
+    $old = new PDO("sqlite:$oldData/viajes.sqlite");
+    $old->exec('CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password TEXT NOT NULL, created INTEGER NOT NULL)');
+    $old->exec('CREATE TABLE verifications (id TEXT PRIMARY KEY)');
+    $old = null;
+    $at = (string)(microtime(true) + 0.3);
+    $procs = [];
+    for ($i = 0; $i < 10; $i++) {
+        $procs[] = proc_open([PHP_BINARY, '-r', $worker, '--', "$root/api.php", $oldData, $at], [1 => ['pipe', 'w']], $out);
+        $outs[] = $out[1];
+    }
+    foreach ($outs as $out) {
+        $result = stream_get_contents($out);
+        if ($result !== 'ok') {
+            $errors[] = $result;
+        }
+    }
+    array_map('proc_close', $procs);
+    $outs = [];
+    exec('rm -rf ' . escapeshellarg($oldData));
+}
+check('10 visitas a la vez actualizan la base sin errores', $errors === [], $errors);
 
 echo $failures ? "\n$failures prueba(s) fallaron.\n" : "\nTodas las pruebas pasaron.\n";
 exit($failures ? 1 : 0);

@@ -17,6 +17,9 @@ if (!preg_match('#<body>(.*)</body>#s', $index, $match)) {
 }
 $favicon = 'data:image/svg+xml;base64,' . base64_encode(trim(file_get_contents("$public/favicon.svg")));
 $body = str_replace('src="favicon.svg"', 'src="' . $favicon . '"', $match[1]);
+// En la prueba la dirección de la página no es la del sitio: se muestra un ejemplo.
+$body = str_replace('<span class="site-origins">la dirección de tu sitio, con y sin <code>www.</code></span>',
+    'la dirección de tu sitio, con y sin www (por ejemplo <code>https://asientovacio.com.ar</code> y <code>https://www.asientovacio.com.ar</code>).', $body);
 
 $banner = <<<'HTML'
 <div class="demo-bar" role="note">

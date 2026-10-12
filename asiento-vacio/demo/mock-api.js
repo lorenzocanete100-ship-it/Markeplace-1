@@ -181,7 +181,7 @@
       const { owner, ...rest } = trip;
       const own = Boolean(user && owner === user.id);
       const list = ratingsOf(owner);
-      return { ...rest, driver_id: owner, driver_photo: ownerOf(trip).photo || null, driver_rating: average(list), driver_ratings: list.length,
+      return { ...rest, driver: ownerOf(trip).name, driver_id: owner, driver_photo: ownerOf(trip).photo || null, driver_rating: average(list), driver_ratings: list.length,
         mine: own, canDelete: own || isAdmin };
     };
     const requireUser = () => user || fail('Iniciá sesión.', 401);
@@ -382,6 +382,14 @@
         return { user: publicUser(me) };
       }
 
+      case 'profile_name': {
+        const me = requireUser();
+        const name = clean(input.name);
+        if (!between(name, 2, 80)) fail('Ingresá tu nombre (2 a 80 caracteres).');
+        me.name = name;
+        return { user: publicUser(me) };
+      }
+
       case 'rate_delete': {
         const me = requireUser();
         db.ratings = db.ratings.filter((r) => !(r.rater === me.id && r.rated === input.user));
@@ -412,7 +420,7 @@
             const t = db.trips.find((x) => x.id === r.trip);
             return {
               id: r.id, reason: r.reason, details: r.details, created: r.created, trip: t.id, origin: t.origin,
-              destination: t.destination, day: t.day, hour: t.hour, driver: t.driver, phone: t.phone,
+              destination: t.destination, day: t.day, hour: t.hour, driver: ownerOf(t).name, phone: t.phone,
               trip_status: t.status, owner_email: ownerOf(t).email,
             };
           }),
@@ -426,6 +434,7 @@
             return {
               id: r.id, stars: r.stars, comment: r.comment, updated: r.updated,
               rater_id: rater.id, rater_name: rater.name, rater_email: rater.email,
+              rater_created: rater.created, rater_google: rater.google_sub ? 1 : 0,
               rated_id: rated.id, rated_name: rated.name, rated_email: rated.email,
             };
           }),
@@ -442,7 +451,7 @@
       case 'admin_trips':
         return {
           items: [...db.trips].sort((a, b) => b.created - a.created).map((t) => ({
-            ...t, owner_email: ownerOf(t).email, owner_blocked: ownerOf(t).blocked,
+            ...t, driver: ownerOf(t).name, owner_email: ownerOf(t).email, owner_blocked: ownerOf(t).blocked,
             reports: db.reports.filter((r) => r.trip === t.id && r.status === 'open').length,
           })),
         };
@@ -466,6 +475,10 @@
           const clientId = clean(input.googleClientId);
           if (clientId && !GOOGLE_CLIENT_ID.test(clientId)) {
             fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
+          }
+          const googleAccounts = db.users.filter((u) => u.google_sub).length;
+          if (!clientId && googleAccounts) {
+            fail(`No se puede apagar: ${googleAccounts} ${googleAccounts === 1 ? 'cuenta entra' : 'cuentas entran'} con Google y no podrían volver a entrar. Si cambiaste de proyecto en Google, pegá el ID nuevo.`, 409);
           }
           db.settings.googleClientId = clientId;
           return { ok: true };

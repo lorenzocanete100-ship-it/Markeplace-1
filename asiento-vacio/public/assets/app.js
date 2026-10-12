@@ -4,9 +4,11 @@
 const PRICE_WORDS = /\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/i;
 const VIEWS = ['viajes', 'publicar', 'mis-viajes', 'perfil', 'perfil-publico', 'admin', 'entrar'];
 const PRIVATE_VIEWS = ['publicar', 'mis-viajes', 'perfil', 'admin'];
+const MIN_RATINGS = 3;        // opiniones que necesita un conductor para el filtro "4 estrellas o más"
+const NEW_ACCOUNT_DAYS = 7;   // en Calificaciones se marcan las hechas con cuentas más nuevas que esto
 const REASONS = { precio: 'Cobra un precio o parece un negocio', datos: 'Teléfono o datos falsos', ofensivo: 'Ofensivo o peligroso', otro: 'Otro motivo' };
 
-const state = { csrf: '', today: '', user: null, googleClientId: '', trips: [], mine: [], tripsLoaded: false, next: 'viajes' };
+const state = { csrf: '', today: '', user: null, googleClientId: '', trips: [], mine: [], tripsLoaded: false, next: 'viajes', returnTo: '' };
 const $ = (selector, root = document) => root.querySelector(selector);
 
 async function api(action, { body, form, query = '', retried = false } = {}) {
@@ -136,6 +138,11 @@ function tripCard(trip, { manage = false } = {}) {
   // Con cuenta, el mensaje lleva el perfil del acompañante, así el conductor ve sus calificaciones.
   if (state.user && !trip.mine) message += ` Mi perfil en Asiento Vacío: ${profileUrl(state.user.id)}`;
   $('.btn-wa', card).href = `https://wa.me/${trip.phone_digits}?text=${encodeURIComponent(message)}`;
+  if (!trip.mine) {
+    for (const link of [$('.phone', card), $('.btn-call', card), $('.btn-wa', card)]) {
+      link.addEventListener('click', () => rememberContact(trip));
+    }
+  }
 
   const remove = $('.delete', card);
   if (manage) {
@@ -198,7 +205,7 @@ function renderTrips() {
   const list = state.trips.filter((t) => (!from || normalize(t.origin).includes(from))
     && (!to || normalize(t.destination).includes(to))
     && (!day || t.day === day)
-    && (!wellRated || (t.driver_ratings > 0 && t.driver_rating >= 4)));
+    && (!wellRated || (t.driver_ratings >= MIN_RATINGS && t.driver_rating >= 4)));
   $('#trips').replaceChildren(...list.map((t) => tripCard(t)));
   $('#empty').hidden = list.length > 0;
   $('#empty strong').textContent = state.trips.length ? 'No hay viajes que coincidan.' : 'Todavía no hay viajes publicados.';
@@ -473,9 +480,24 @@ async function loadAdmin() {
   renderUsers();
 }
 
-function selectAdminTab(name) {
-  document.querySelectorAll('#admin-tabs [data-tab]').forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.tab === name)));
+function selectAdminTab(name, focus = false) {
+  document.querySelectorAll('#admin-tabs [data-tab]').forEach((tab) => {
+    const selected = tab.dataset.tab === name;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  });
   for (const pane of ['reports', 'ratings', 'trips', 'users', 'settings']) $(`#pane-${pane}`).hidden = pane !== name;
+}
+
+// Pestañas con teclado: flechas, Inicio y Fin.
+function moveAdminTab(event) {
+  const tabs = [...document.querySelectorAll('#admin-tabs [data-tab]')];
+  const current = tabs.indexOf(document.activeElement);
+  const next = { ArrowRight: current + 1, ArrowLeft: current - 1, Home: 0, End: tabs.length - 1 }[event.key];
+  if (current < 0 || next === undefined) return;
+  event.preventDefault();
+  selectAdminTab(tabs[(next + tabs.length) % tabs.length].dataset.tab, true);
 }
 
 function showTripsOf(email) {
@@ -595,7 +617,10 @@ function renderRatings() {
   const lowOnly = $('#filter-ratings').value === 'low';
   const list = admin.ratings.filter((r) => !lowOnly || Number(r.stars) <= 2);
   const rows = list.map((r) => el('article', { className: 'item' },
-    el('div', { className: 'badges' }, Number(r.stars) <= 2 && badge('Baja', 'bad'), badge(when(r.updated), 'off')),
+    el('div', { className: 'badges' }, Number(r.stars) <= 2 && badge('Baja', 'bad'),
+      // Ayuda a ver calificaciones de cuentas inventadas: las hechas con cuentas recién creadas.
+      r.rater_created > r.updated - NEW_ACCOUNT_DAYS * 86400 && badge('Cuenta nueva', 'warn'),
+      Number(r.rater_google) === 1 && badge('Google'), badge(when(r.updated), 'off')),
     el('p', { className: 'item-title' }, starsText(Number(r.stars)), ` ${r.rater_name} calificó a ${r.rated_name}`),
     el('p', { className: 'item-meta', textContent: `${r.rater_email} → ${r.rated_email}` }),
     r.comment && el('p', { className: 'item-quote', textContent: r.comment }),
@@ -613,7 +638,12 @@ function renderSettings(settings) {
   $('#google-status').textContent = settings.googleClientId
     ? 'Activado: en "Entrar" aparece el botón "Continuar con Google".'
     : 'Apagado: todavía no cargaste el ID de cliente de Google.';
-  document.querySelectorAll('.site-origin').forEach((node) => { node.textContent = location.origin; });
+  // Las dos direcciones del sitio, con y sin www (en la versión de prueba no hay .site-origins).
+  const host = location.hostname.replace(/^www\./, '');
+  const origins = location.protocol === 'https:' && host.includes('.') ? [`https://${host}`, `https://www.${host}`] : [location.origin];
+  document.querySelectorAll('.site-origins').forEach((node) => {
+    node.replaceChildren(...origins.flatMap((origin, i) => [i ? ' y ' : '', el('code', { textContent: origin })]), '.');
+  });
 }
 
 async function saveSettings(event) {
@@ -661,8 +691,12 @@ function starIcon() {
 // Promedio compacto para tarjetas y listas: ★ 4,8 (12).
 function ratingBadge(average, count) {
   if (!count) return el('span', { className: 'rating none', textContent: 'Sin calificaciones' });
-  return el('span', { className: 'rating', title: `${decimal.format(average)} de 5 estrellas · ${ratingsText(count)}` },
+  const label = `${decimal.format(average)} de 5 estrellas · ${ratingsText(count)}`;
+  const node = el('span', { className: 'rating', title: label },
     starIcon(), decimal.format(average), el('span', { className: 'count', textContent: `(${count})` }));
+  node.setAttribute('role', 'img');
+  node.setAttribute('aria-label', label);
+  return node;
 }
 
 function starsText(stars) {
@@ -673,9 +707,15 @@ function starsText(stars) {
 }
 
 function ratingSummary(target, average, count, emptyText) {
-  target.replaceChildren(...(count
-    ? [starsText(Math.round(average)), ` ${decimal.format(average)} · ${ratingsText(count)}`]
-    : [emptyText]));
+  if (!count) {
+    target.replaceChildren(emptyText);
+    return;
+  }
+  // Las estrellas dibujadas están redondeadas: el lector de pantalla oye el promedio exacto.
+  const node = el('span', {}, starsText(Math.round(average)), ` ${decimal.format(average)} · ${ratingsText(count)}`);
+  node.setAttribute('role', 'img');
+  node.setAttribute('aria-label', `${decimal.format(average)} de 5 estrellas · ${ratingsText(count)}`);
+  target.replaceChildren(node);
 }
 
 // Foto de perfil, o un círculo con la inicial si la persona no subió una.
@@ -695,6 +735,37 @@ function reviewItem(review) {
       el('span', { className: 'review-date', textContent: when(review.updated) })),
     starsText(Number(review.stars)),
     review.comment && el('p', { textContent: review.comment }));
+}
+
+/* Conductores contactados: quedan en este navegador para poder calificarlos después del viaje,
+   cuando el viaje ya no aparece en la lista. */
+const CONTACTS_KEY = 'asiento-vacio-contactados';
+function readContacts() {
+  try {
+    const list = JSON.parse(localStorage.getItem(CONTACTS_KEY) || '[]');
+    return Array.isArray(list) ? list.filter((c) => /^[\w-]{1,64}$/.test(c?.id) && typeof c.name === 'string'
+      && typeof c.trip === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.day)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberContact(trip) {
+  const contact = { id: trip.driver_id, name: trip.driver, trip: `${trip.origin} → ${trip.destination}`, day: trip.day };
+  const list = [contact, ...readContacts().filter((c) => c.id !== contact.id)].slice(0, 20);
+  try {
+    localStorage.setItem(CONTACTS_KEY, JSON.stringify(list));
+  } catch {
+    // Sin almacenamiento (modo privado): no se guarda la lista.
+  }
+}
+
+function renderContacts() {
+  const list = readContacts().filter((c) => c.id !== state.user.id);
+  $('#contacted-box').hidden = !list.length;
+  $('#contacted').replaceChildren(...list.map((c) => el('li', {},
+    el('a', { href: `#perfil-${c.id}`, textContent: c.name }),
+    el('span', { className: 'muted', textContent: ` · ${c.trip} · ${formatDay(c.day)}` }))));
 }
 
 function renderMyPhoto() {
@@ -759,6 +830,8 @@ async function loadProfile() {
   $('#me-google').hidden = !me.google;
   $('#me-meta').textContent = `${me.email} · ${memberSince(me.created)}`;
   $('#me-link').value = profileUrl(me.id);
+  $('#name-form').elements.namedItem('name').value = me.name;
+  renderContacts();
   let data;
   try {
     data = await api('profile', { query: `&id=${encodeURIComponent(me.id)}` });
@@ -771,6 +844,18 @@ async function loadProfile() {
   renderMyPhoto();
   ratingSummary($('#me-rating'), data.profile.rating, data.profile.ratings, 'Todavía no tenés calificaciones.');
   $('#me-reviews').replaceChildren(...data.reviews.map(reviewItem));
+}
+
+async function saveName(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await busy(form, async () => {
+    const result = await api('profile_name', { body: { name: form.elements.namedItem('name').value.trim() } });
+    state.user = result.user;
+    state.tripsLoaded = false;
+    toast('Listo: cambiaste tu nombre.');
+    loadProfile();
+  });
 }
 
 async function sendRating(event) {
@@ -813,12 +898,23 @@ async function copyProfileLink() {
   }
 }
 
+let profileRequest = 0;
 async function loadPublicProfile(id) {
   const form = $('#rate-form');
+  const ticket = ++profileRequest;
+  if (form.dataset.user !== id) {
+    // Otro perfil: no se deja a la vista (ni para calificar) el anterior mientras carga.
+    form.hidden = true;
+    form.dataset.user = '';
+    $('#pp-name').textContent = 'Cargando…';
+    for (const node of ['#pp-photo', '#pp-rating', '#pp-reviews', '#pp-trips']) $(node).replaceChildren();
+    $('#pp-meta').textContent = '';
+  }
   let data;
   try {
     data = await api('profile', { query: `&id=${encodeURIComponent(id)}` });
   } catch (error) {
+    if (ticket !== profileRequest) return;
     $('#pp-name').textContent = error.message;
     for (const node of ['#pp-photo', '#pp-rating', '#pp-reviews', '#pp-trips']) $(node).replaceChildren();
     $('#pp-meta').textContent = '';
@@ -827,6 +923,7 @@ async function loadPublicProfile(id) {
     $('#pp-empty').hidden = true;
     return;
   }
+  if (ticket !== profileRequest) return;  // llegó tarde: ya se pidió otro perfil
   const { profile } = data;
   $('#pp-photo').replaceChildren(avatar(profile.photo, profile.name, 'lg'));
   $('#pp-name').textContent = profile.name;
@@ -872,8 +969,9 @@ function route() {
     view = 'entrar';
   } else if (view === 'entrar') {
     if (state.user) view = 'viajes';
-    state.next = 'mis-viajes';
+    state.next = state.returnTo || 'mis-viajes';
   }
+  state.returnTo = '';
   if (view === 'entrar') renderGoogle();
   for (const name of VIEWS) $(`#view-${name}`).hidden = name !== view;
   document.querySelectorAll('[data-view]').forEach((link) => {
@@ -904,10 +1002,14 @@ async function init() {
   $('#admin-tabs').addEventListener('click', (event) => {
     if (event.target.dataset.tab) selectAdminTab(event.target.dataset.tab);
   });
+  $('#admin-tabs').addEventListener('keydown', moveAdminTab);
+  $('#name-form').addEventListener('submit', saveName);
   $('#filter-trips').addEventListener('input', renderAdminTrips);
   $('#filter-users').addEventListener('input', renderUsers);
   $('#filter-role').addEventListener('change', renderUsers);
   $('#copy-link').addEventListener('click', copyProfileLink);
+  // Después de entrar, se vuelve al perfil que se quería calificar.
+  $('#rate-login a').addEventListener('click', () => { state.returnTo = location.hash.slice(1); });
   $('#photo-input').addEventListener('change', uploadPhoto);
   $('#photo-google').addEventListener('click', () => photoAction('photo_google', null, 'Listo: ahora usás tu foto de Google.'));
   $('#photo-delete').addEventListener('click', deletePhoto);
