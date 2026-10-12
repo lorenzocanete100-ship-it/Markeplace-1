@@ -7,8 +7,8 @@
 <meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
 <meta name="theme-color" content="#17409a">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/styles.css?v=11">
-<script src="assets/app.js?v=11" defer></script>
+<link rel="stylesheet" href="assets/styles.css?v=12">
+<script src="assets/app.js?v=12" defer></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true">
@@ -123,7 +123,7 @@
         <h1 id="t-mine">Mis viajes</h1>
         <a class="btn" href="#publicar">Publicar otro viaje</a>
       </div>
-      <p class="muted">Cuando se llenen los asientos, marcá el viaje como completo para que no te sigan llamando.</p>
+      <p class="muted">Cuando se llenen los asientos, marcá el viaje como completo para que no te sigan llamando. Después del viaje, calificá a tus acompañantes desde el enlace a su perfil que te llega en el WhatsApp.</p>
       <div class="trips" id="mine"></div>
       <div class="empty card" id="mine-empty" hidden>
         <p>Todavía no publicaste viajes.</p>
@@ -191,17 +191,8 @@
             <h2>Ingreso con Google</h2>
             <p id="google-status"></p>
             <label>ID de cliente de Google<input name="googleClientId" autocomplete="off" spellcheck="false" placeholder="1234567890-abc123.apps.googleusercontent.com"></label>
-            <details class="help">
-              <summary>¿Dónde consigo el ID de cliente?</summary>
-              <ol>
-                <li>Entrá a <strong>console.cloud.google.com</strong> con tu cuenta de Google y creá un proyecto (por ejemplo "Asiento Vacío").</li>
-                <li>Configurá la pantalla de consentimiento de OAuth: elegí público <strong>Externo</strong>, poné el nombre de la app y tu correo de contacto, y publicala.</li>
-                <li>En <strong>Credenciales → Crear credenciales → ID de cliente de OAuth</strong>, elegí <strong>Aplicación web</strong>.</li>
-                <li>En <strong>Orígenes autorizados de JavaScript</strong> agregá <span class="site-origins">la dirección de tu sitio, con y sin <code>www.</code></span></li>
-                <li>Copiá el <strong>ID de cliente</strong> (termina en <code>.apps.googleusercontent.com</code>) y pegalo acá.</li>
-              </ol>
-            </details>
-            <p class="muted">Para apagar el ingreso con Google, borrá el ID y guardá. Solo se puede mientras nadie haya entrado con Google: esas cuentas no tienen contraseña y quedarían afuera.</p>
+            <div class="google-help"></div>
+            <p class="muted">Se entra solo con Google, así que el ID se puede cambiar pero no borrar.</p>
             <p class="form-error" role="alert" hidden></p>
             <button class="btn" type="submit">Guardar</button>
           </form>
@@ -222,13 +213,11 @@
             <p class="muted" id="me-meta"></p>
           </div>
         </div>
+        <p class="muted small">Tu foto es la de tu cuenta de Google y se ve en tus viajes, en tu perfil y en las opiniones que dejes. Si no querés mostrarla, quitala.</p>
         <div class="photo-actions">
-          <label class="btn btn-sm btn-ghost file-btn"><span id="photo-label">Subir foto</span>
-            <input type="file" id="photo-input" class="visually-hidden" accept="image/jpeg,image/png,image/webp"></label>
-          <button type="button" class="btn btn-sm btn-ghost" id="photo-google" hidden>Usar mi foto de Google</button>
           <button type="button" class="btn btn-sm btn-ghost" id="photo-delete" hidden>Quitar foto</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="photo-google" hidden>Mostrar mi foto de Google</button>
         </div>
-        <p class="muted small">Tu foto se ve en tus viajes, en tu perfil y en las opiniones que dejes.</p>
         <form class="name-form" id="name-form" novalidate>
           <label>Nombre que ven los demás<input name="name" required maxlength="80" autocomplete="name"><small>Sale en tus viajes, en tu perfil y en tus opiniones.</small></label>
           <p class="form-error" role="alert" hidden></p>
@@ -239,8 +228,8 @@
 
       <section class="card profile-section" aria-labelledby="t-my-ratings">
         <h2 id="t-my-ratings">Mis calificaciones</h2>
-        <p class="rating-summary" id="me-rating"></p>
-        <p class="muted">Cuando le escribas a un conductor por WhatsApp desde la página, el mensaje lleva el enlace a tu perfil, así ve tus calificaciones. Después del viaje se pueden calificar entre ustedes desde el perfil de cada uno.</p>
+        <div class="rating-lines" id="me-rating"></div>
+        <p class="muted">Conductores y acompañantes se califican entre ellos después del viaje, desde el perfil de cada uno. Cuando le escribas a un conductor por WhatsApp desde la página, el mensaje lleva el enlace a tu perfil, así ve tus calificaciones y después te puede calificar.</p>
         <label>Enlace a tu perfil<input id="me-link" readonly></label>
         <button type="button" class="btn btn-sm btn-ghost" id="copy-link">Copiar enlace</button>
         <div class="reviews" id="me-reviews"></div>
@@ -264,14 +253,19 @@
             <h1 id="pp-name"></h1>
           </div>
         </div>
-        <p class="rating-summary" id="pp-rating"></p>
+        <div class="rating-lines" id="pp-rating"></div>
         <p class="muted" id="pp-meta"></p>
       </div>
 
       <form class="card form rate" id="rate-form" novalidate hidden>
         <h2 id="t-rate">Calificar a <span id="rate-name"></span></h2>
+        <fieldset class="role-choice">
+          <legend>¿Cómo viajaron juntos?</legend>
+          <label class="check"><input type="radio" name="role" value="driver" required> <span><span class="rate-who"></span> manejaba: era el conductor</span></label>
+          <label class="check"><input type="radio" name="role" value="rider"> <span><span class="rate-who"></span> viajó conmigo como acompañante</span></label>
+        </fieldset>
         <fieldset>
-          <legend>¿Cómo fue viajar con esta persona?</legend>
+          <legend>¿Qué tal fue el viaje?</legend>
           <div class="stars-input">
             <input type="radio" id="star-1" name="stars" value="1" required><label for="star-1" title="1 estrella: mal"><span aria-hidden="true">★</span><span class="visually-hidden">1 estrella: mal</span></label>
             <input type="radio" id="star-2" name="stars" value="2"><label for="star-2" title="2 estrellas: regular"><span aria-hidden="true">★</span><span class="visually-hidden">2 estrellas: regular</span></label>
@@ -280,14 +274,14 @@
             <input type="radio" id="star-5" name="stars" value="5"><label for="star-5" title="5 estrellas: excelente"><span aria-hidden="true">★</span><span class="visually-hidden">5 estrellas: excelente</span></label>
           </div>
         </fieldset>
-        <label><span>Comentario <span class="opt">(opcional)</span></span><textarea name="comment" rows="3" maxlength="300" placeholder="Puntualidad, trato, cómo manejó…"></textarea></label>
+        <label><span>Comentario <span class="opt">(opcional)</span></span><textarea name="comment" rows="3" maxlength="300" placeholder="Puntualidad, trato, cómo fue el viaje…"></textarea></label>
         <p class="form-error" role="alert" hidden></p>
         <div class="dlg-actions">
           <button type="button" class="btn btn-ghost" id="rate-delete" hidden>Borrar mi calificación</button>
           <button class="btn" type="submit">Guardar calificación</button>
         </div>
       </form>
-      <p class="card rate-login" id="rate-login" hidden><a href="#entrar">Entrá con tu cuenta</a> para calificar a esta persona.</p>
+      <p class="card rate-login" id="rate-login" hidden><a href="#entrar">Entrá con tu cuenta de Google</a> para calificar a esta persona.</p>
 
       <h2 class="pp-title">Opiniones</h2>
       <div class="reviews" id="pp-reviews"></div>
@@ -300,29 +294,22 @@
 
   <section class="view" id="view-entrar" aria-labelledby="t-entrar" hidden>
     <div class="wrap narrow">
-      <h1 id="t-entrar">Tu cuenta</h1>
-      <p class="muted">Con una cuenta podés publicar viajes y calificar a conductores y acompañantes. Para viajar no hace falta: llamá directo al conductor.</p>
-      <div class="google-box" id="google-box" hidden>
+      <h1 id="t-entrar">Entrar</h1>
+      <p class="muted">Se entra con tu cuenta de Google: no hace falta crear otra cuenta ni acordarse de una contraseña. Con tu cuenta podés publicar viajes y calificar a conductores y acompañantes. Para viajar no hace falta: llamá directo al conductor.</p>
+      <div class="card google-box" id="google-box" hidden>
         <div id="google-button"></div>
         <p class="form-error" id="google-error" role="alert" hidden></p>
-        <p class="or"><span>o con tu correo</span></p>
+        <p class="muted small">Tu nombre y tu foto de Google se usan para tu perfil (después los podés cambiar o quitar). Tu correo no se muestra a nadie.</p>
       </div>
-      <div class="tabs" role="tablist">
-        <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="login">Entrar</button>
-        <button type="button" role="tab" id="tab-register" aria-selected="false" aria-controls="register">Crear cuenta</button>
-      </div>
-      <form class="card form" id="login" role="tabpanel" aria-labelledby="tab-login">
-        <label>Correo<input name="email" type="email" required autocomplete="email"></label>
-        <label>Contraseña<input name="password" type="password" required minlength="10" autocomplete="current-password"></label>
+      <p class="card note" id="google-off" role="alert" hidden>No se pudo cargar el botón de Google. Revisá tu conexión y recargá la página.</p>
+      <form class="card form" id="setup-form" novalidate hidden>
+        <h2>Falta configurar el ingreso</h2>
+        <p>Todavía nadie puede entrar: el sitio necesita el ID de cliente de Google. Si sos el dueño, cargalo acá junto con el código de administración.</p>
+        <label>Código de administración<input name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX"></label>
+        <label>ID de cliente de Google<input name="googleClientId" required autocomplete="off" spellcheck="false" placeholder="1234567890-abc123.apps.googleusercontent.com"></label>
+        <div class="google-help"></div>
         <p class="form-error" role="alert" hidden></p>
-        <button class="btn btn-big" type="submit">Entrar</button>
-      </form>
-      <form class="card form" id="register" role="tabpanel" aria-labelledby="tab-register" hidden>
-        <label>Nombre<input name="name" required maxlength="80" autocomplete="name"></label>
-        <label>Correo<input name="email" type="email" required autocomplete="email"></label>
-        <label>Contraseña<input name="password" type="password" required minlength="10" autocomplete="new-password"><small>Mínimo 10 caracteres.</small></label>
-        <p class="form-error" role="alert" hidden></p>
-        <button class="btn btn-big" type="submit">Crear cuenta</button>
+        <button class="btn btn-big" type="submit">Activar el ingreso con Google</button>
       </form>
     </div>
   </section>
@@ -337,6 +324,19 @@
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<template id="google-help-tpl">
+  <details class="help">
+    <summary>¿Dónde consigo el ID de cliente?</summary>
+    <ol>
+      <li>Entrá a <strong>console.cloud.google.com</strong> con tu cuenta de Google y creá un proyecto (por ejemplo "Asiento Vacío").</li>
+      <li>Configurá la pantalla de consentimiento de OAuth: elegí público <strong>Externo</strong>, poné el nombre de la app y tu correo de contacto, y publicala.</li>
+      <li>En <strong>Credenciales → Crear credenciales → ID de cliente de OAuth</strong>, elegí <strong>Aplicación web</strong>.</li>
+      <li>En <strong>Orígenes autorizados de JavaScript</strong> agregá <span class="site-origins">la dirección de tu sitio, con y sin <code>www.</code></span></li>
+      <li>Copiá el <strong>ID de cliente</strong> (termina en <code>.apps.googleusercontent.com</code>) y pegalo acá.</li>
+    </ol>
+  </details>
+</template>
 
 <template id="trip-tpl">
   <article class="trip card">
