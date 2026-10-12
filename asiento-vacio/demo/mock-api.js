@@ -2,8 +2,15 @@
 // Servidor de mentira para probar Asiento Vacío sin hosting. Atiende los mismos
 // pedidos que api.php y con las mismas reglas, pero guarda todo en este navegador.
 (() => {
-  const KEY = 'asiento-vacio-prueba-2';
+  const KEY = 'asiento-vacio-prueba-3';
+  // Versiones anteriores de la prueba guardaban fotos de DNI: se borran del navegador.
+  try {
+    ['asiento-vacio-prueba', 'asiento-vacio-prueba-2'].forEach((old) => localStorage.removeItem(old));
+  } catch {
+    // Sin almacenamiento no hay nada que borrar.
+  }
   const ADMIN_CODE = 'PRUEBA2026';
+  const GOOGLE_CREDENTIAL = 'comprobante-de-prueba';
   const PRICE_WORDS = /\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/i;
   const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
   const SUSPEND_DAYS = [1, 7, 30, 0];
@@ -14,6 +21,8 @@
     denuncias: 'Recibió varias denuncias.',
     otro: 'No cumplió las reglas del sitio.',
   };
+  const GOOGLE_CLIENT_ID = /^[0-9]{5,30}-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$/;
+  const MAX_COMMENT = 300;
   const AR = { timeZone: 'America/Argentina/Buenos_Aires' };
   const untilText = (seconds) => {
     const date = new Date(seconds * 1000);
@@ -21,16 +30,10 @@
     const time = new Intl.DateTimeFormat('es-AR', { ...AR, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
     return ` hasta el ${day} a las ${time}`;
   };
-  const REJECT_REASONS = {
-    ilegible: 'Las fotos no se ven bien.',
-    datos: 'Los datos del DNI no coinciden con el nombre de tu cuenta.',
-    selfie: 'En la selfie no se ve tu cara junto al DNI.',
-    otro: 'No pudimos confirmar tu identidad.',
-  };
   const realFetch = window.fetch.bind(window);
 
   const now = () => Math.floor(Date.now() / 1000);
-  const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
+  const today = () => new Intl.DateTimeFormat('en-CA', AR).format(new Date());
   const addDays = (iso, days) => {
     const date = new Date(`${iso}T12:00:00Z`);
     date.setUTCDate(date.getUTCDate() + days);
@@ -41,56 +44,42 @@
   const multiline = (v) => (typeof v === 'string' ? v.replace(/[ \t]+/g, ' ').trim() : '');
   const between = (v, min, max) => [...v].length >= min && [...v].length <= max;
 
-  // Fotos de ejemplo dibujadas acá mismo, para ver cómo se revisa una verificación.
-  function samplePhoto(label, tint, portrait) {
-    const canvas = document.createElement('canvas');
-    canvas.width = portrait ? 360 : 560;
-    canvas.height = portrait ? 480 : 350;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return '';
-    ctx.fillStyle = tint;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = '#2b3445';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(14, 14, canvas.width - 28, canvas.height - 28);
-    ctx.fillStyle = '#2b3445';
-    ctx.font = 'bold 24px system-ui, sans-serif';
-    ctx.fillText('EJEMPLO', 34, 54);
-    ctx.font = '20px system-ui, sans-serif';
-    ctx.fillText(label, 34, 86);
-    ctx.beginPath();
-    ctx.ellipse(canvas.width * 0.3, canvas.height * 0.6, 60, 78, 0, 0, Math.PI * 2);
-    ctx.fill();
-    return canvas.toDataURL('image/jpeg', 0.8);
-  }
-
   function seed() {
     const day = today();
     const ts = now();
-    const user = (id, name, email, ago) => ({ id, email, name, password: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', verified: 0, verified_at: 0, created: ts - ago * 86400 });
+    const user = (id, name, email, ago) => ({
+      id, email, name, password: '', google_sub: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: ts - ago * 86400,
+    });
     const trip = (owner, origin, destination, inDays, hour, seats, driver, phone, vehicle, notes) => ({
       id: newId(), owner, origin, destination, day: addDays(day, inDays), hour, seats, driver, phone,
       phone_digits: phone.replace(/\D/g, ''), vehicle, notes, status: 'active', created: ts - (inDays + 1) * 5400,
     });
-    const photos = {
-      'ej-frente.jpg': samplePhoto('DNI de frente', '#d6e4f0', false),
-      'ej-dorso.jpg': samplePhoto('DNI de dorso', '#e2e8d6', false),
-      'ej-selfie.jpg': samplePhoto('Selfie con el DNI', '#f0d6c8', true),
-    };
+    const rating = (rater, rated, stars, comment, ago) => ({
+      id: newId(), rater, rated, stars, comment, created: ts - ago * 86400, updated: ts - ago * 86400,
+    });
     return {
+      settings: { googleClientId: '1234567890-pruebaasiento.apps.googleusercontent.com' },
       users: [
-        { ...user('ej-marta', 'Marta', 'marta@ejemplo.com', 20), verified: 1, verified_at: ts - 12 * 86400 },
+        user('ej-marta', 'Marta', 'marta@ejemplo.com', 20),
         user('ej-diego', 'Diego', 'diego@ejemplo.com', 9),
         user('ej-rosa', 'Rosa', 'rosa@ejemplo.com', 3),
+        user('ej-lucia', 'Lucía', 'lucia@ejemplo.com', 15),
+        user('ej-pablo', 'Pablo', 'pablo@ejemplo.com', 12),
       ],
-      verifications: [{ id: 'ej-verif', user: 'ej-rosa', status: 'pending', reason: '', files: Object.keys(photos), created: ts - 7200, decided: 0 }],
-      photos,
       trips: [
         trip('ej-marta', 'Rosario', 'Buenos Aires', 0, '19:00', 2, 'Marta', '54 9 11 0000 1111', 'Fiat Cronos gris', 'Aviso de ejemplo.'),
         trip('ej-marta', 'González Catán', 'Córdoba', 1, '06:30', 3, 'Marta', '54 9 11 0000 1111', 'Fiat Cronos gris', 'Aviso de ejemplo. Salgo desde la plaza; hay lugar para un bolso por persona.'),
         trip('ej-diego', 'La Plata', 'Mar del Plata', 2, '08:00', 2, 'Diego', '54 9 221 000 2222', 'VW Gol blanco', 'Aviso de ejemplo. Paramos a desayunar en Dolores.'),
         trip('ej-rosa', 'Posadas', 'Encarnación (Paraguay)', 3, '09:15', 1, 'Rosa', '595 981 000 333', '', 'Aviso de ejemplo. Cruzo por el puente San Roque González: llevá tu documento.'),
         trip('ej-diego', 'Mar del Plata', 'La Plata', 5, '17:30', 3, 'Diego', '54 9 221 000 2222', 'VW Gol blanco', 'Aviso de ejemplo.'),
+      ],
+      ratings: [
+        rating('ej-lucia', 'ej-marta', 5, 'Súper puntual y muy amable. (Opinión de ejemplo)', 10),
+        rating('ej-pablo', 'ej-marta', 5, 'Viaje tranquilo, maneja con cuidado. (Opinión de ejemplo)', 6),
+        rating('ej-diego', 'ej-marta', 4, '', 4),
+        rating('ej-lucia', 'ej-diego', 4, 'Buena onda, paramos a desayunar. (Opinión de ejemplo)', 5),
+        rating('ej-pablo', 'ej-diego', 2, 'Llegó 40 minutos tarde y no avisó. (Opinión de ejemplo)', 2),
+        rating('ej-marta', 'ej-lucia', 5, 'Muy buena compañera de viaje. (Opinión de ejemplo)', 8),
       ],
       reports: [],
       uid: null,
@@ -130,38 +119,18 @@
   const fail = (message, status) => { throw new Failure(message, status); };
 
   const userById = (id) => db.users.find((u) => u.id === id) || null;
-  const publicUser = (u) => (u ? {
-    id: u.id, email: u.email, name: u.name, created: u.created,
-    admin: u.is_admin === 1, verified: u.verified === 1, verifiedAt: u.verified_at || 0,
-  } : null);
-  const dropPhotos = (files) => files.forEach((name) => { delete db.photos[name]; });
-
-  // Achica la foto elegida y la guarda como texto, para que entre en el almacenamiento del navegador.
-  async function storePhoto(file) {
-    if (!(file instanceof Blob) || !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 10 * 1024 * 1024) return null;
-    try {
-      const bitmap = await createImageBitmap(file);
-      const scale = Math.min(1, 800 / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(bitmap.width * scale);
-      canvas.height = Math.round(bitmap.height * scale);
-      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const name = `${newId()}.jpg`;
-      db.photos[name] = canvas.toDataURL('image/jpeg', 0.8);
-      return name;
-    } catch {
-      return null;
-    }
-  }
-
-  function photoResponse(dataUrl) {
-    const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
-    return new Response(new Blob([bytes], { type: 'image/jpeg' }), { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
-  }
   const ownerOf = (trip) => userById(trip.owner) || {};
   const byDayHour = (a, b) => (a.day + a.hour).localeCompare(b.day + b.hour);
+  const publicUser = (u) => (u ? {
+    id: u.id, email: u.email, name: u.name, created: u.created, admin: u.is_admin === 1, google: Boolean(u.google_sub),
+  } : null);
+  const suspended = (account) => fail(`Tu cuenta está suspendida${account.blocked_until ? untilText(account.blocked_until) : ''}.`
+    + (account.blocked_reason ? ` Motivo: ${account.blocked_reason}` : ''), 403);
+  // Calificaciones que cuentan: no las de cuentas suspendidas.
+  const ratingsOf = (id) => db.ratings.filter((r) => r.rated === id && userById(r.rater)?.blocked !== 1);
+  const average = (list) => (list.length ? Math.round((list.reduce((sum, r) => sum + r.stars, 0) / list.length) * 10) / 10 : null);
 
-  async function handle(action, params, input) {
+  async function handle(method, action, params, input) {
     const mine = params.get('mine') === '1';
     // Las suspensiones con plazo se levantan solas cuando se cumple la fecha.
     db.users.filter((u) => u.blocked === 1 && u.blocked_until && u.blocked_until <= now())
@@ -175,7 +144,8 @@
     const serialize = (trip) => {
       const { owner, ...rest } = trip;
       const own = Boolean(user && owner === user.id);
-      return { ...rest, driver_id: owner, driver_verified: ownerOf(trip).verified === 1, mine: own, canDelete: own || isAdmin };
+      const list = ratingsOf(owner);
+      return { ...rest, driver_id: owner, driver_rating: average(list), driver_ratings: list.length, mine: own, canDelete: own || isAdmin };
     };
     const requireUser = () => user || fail('Iniciá sesión.', 401);
     const ownTrip = () => {
@@ -185,13 +155,17 @@
       if (trip.owner !== user.id && !(action === 'trip_delete' && isAdmin)) fail('No podés modificar este viaje.', 403);
       return trip;
     };
+    const signIn = (account) => {
+      db.uid = account.id;
+      return { csrf: 'prueba', user: publicUser(account) };
+    };
     if (action.startsWith('admin_') && action !== 'admin_claim' && !isAdmin) {
       fail(user ? 'Esta sección es solo para administración.' : 'Iniciá sesión.', user ? 403 : 401);
     }
 
     switch (action) {
       case 'session':
-        return { csrf: 'prueba', today: today(), user: publicUser(user) };
+        return { csrf: 'prueba', today: today(), user: publicUser(user), googleClientId: db.settings.googleClientId };
 
       case 'logout':
         db.uid = null;
@@ -209,17 +183,32 @@
           const name = clean(input.name);
           if (!between(name, 2, 80)) fail('Ingresá tu nombre (2 a 80 caracteres).');
           if (account) fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
-          account = { id: newId(), email, name, password: await digest(password), is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', verified: 0, verified_at: 0, created: now() };
+          account = { id: newId(), email, name, password: await digest(password), google_sub: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
           db.users.push(account);
-        } else {
-          if (!account || account.password !== await digest(password)) fail('Correo o contraseña incorrectos.', 401);
-          if (account.blocked === 1) {
-            fail(`Tu cuenta está suspendida${account.blocked_until ? untilText(account.blocked_until) : ''}.`
-              + (account.blocked_reason ? ` Motivo: ${account.blocked_reason}` : ''), 403);
-          }
+          return signIn(account);
         }
-        db.uid = account.id;
-        return { csrf: 'prueba', user: publicUser(account) };
+        if (!account || !account.password || account.password !== await digest(password)) {
+          fail(account?.google_sub ? 'Esta cuenta entra con Google: tocá "Continuar con Google".' : 'Correo o contraseña incorrectos.', 401);
+        }
+        if (account.blocked === 1) suspended(account);
+        return signIn(account);
+      }
+
+      case 'google': {
+        // En la prueba, el botón de Google es simulado y siempre entra con la misma cuenta de ejemplo.
+        if (!db.settings.googleClientId) fail('El ingreso con Google no está activado.', 404);
+        if (input.credential !== GOOGLE_CREDENTIAL) fail('No pudimos confirmar tu cuenta de Google. Probá de nuevo.', 401);
+        const sub = 'prueba-google';
+        let account = db.users.find((u) => u.google_sub === sub) || db.users.find((u) => u.email === 'google.prueba@ejemplo.com');
+        if (account) {
+          if (account.blocked === 1) suspended(account);
+          if (!account.google_sub) Object.assign(account, { google_sub: sub, password: '' });
+          return signIn(account);
+        }
+        account = { id: newId(), email: 'google.prueba@ejemplo.com', name: 'Cuenta de Google (prueba)', password: '', google_sub: sub,
+          is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
+        db.users.push(account);
+        return signIn(account);
       }
 
       case 'trips': {
@@ -237,9 +226,9 @@
       case 'trip_create': {
         if (!user) fail('Iniciá sesión para publicar un viaje.', 401);
         const v = {};
-        for (const k of ['origin', 'destination', 'day', 'hour', 'driver', 'phone', 'vehicle']) v[k] = clean(input[k]);
+        for (const k of ['origin', 'destination', 'day', 'hour', 'phone', 'vehicle']) v[k] = clean(input[k]);
         v.notes = multiline(input.notes);
-        if (user.verified === 1) v.driver = user.name;
+        v.driver = user.name;
         if (input.confirmPrivate !== true || input.confirmPhone !== true) {
           fail('Confirmá que sos un particular que comparte gastos y que aceptás mostrar tu teléfono.');
         }
@@ -252,7 +241,6 @@
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v.hour)) fail('Indicá una hora de salida válida.');
         const seats = Number(input.seats);
         if (!Number.isInteger(seats) || seats < 1 || seats > 8) fail('Podés ofrecer de 1 a 8 asientos.');
-        if (!between(v.driver, 2, 60)) fail('Ingresá tu nombre como conductor.');
         const digits = v.phone.replace(/\D/g, '');
         if (!/^[0-9+()\-. ]{8,25}$/.test(v.phone) || digits.length < 10 || digits.length > 15) {
           fail('Ingresá un teléfono con código de país y de área, por ejemplo 54 9 11 2345 6789.');
@@ -302,70 +290,40 @@
       case 'profile': {
         const profile = userById(params.get('id') || '');
         if (!profile || profile.blocked === 1) fail('Perfil no encontrado.', 404);
+        const list = ratingsOf(profile.id);
+        const reviews = [...list].sort((a, b) => b.updated - a.updated).slice(0, 50).map((r) => ({
+          stars: r.stars, comment: r.comment, updated: r.updated, rater_id: r.rater, rater_name: userById(r.rater).name,
+        }));
+        const own = user ? db.ratings.find((r) => r.rater === user.id && r.rated === profile.id) : null;
         const trips = db.trips.filter((t) => t.owner === profile.id && t.status === 'active' && t.day >= today()).sort(byDayHour);
         return {
-          profile: { id: profile.id, name: profile.name, created: profile.created, verified: profile.verified === 1, verifiedAt: profile.verified_at || 0 },
+          profile: { id: profile.id, name: profile.name, created: profile.created, rating: average(list), ratings: list.length },
+          reviews,
+          mine: own ? { stars: own.stars, comment: own.comment } : null,
           trips: trips.map(serialize),
         };
       }
 
-      case 'verification': {
+      case 'rate': {
         const me = requireUser();
-        const request = db.verifications.filter((v) => v.user === me.id).sort((a, b) => b.created - a.created)[0];
-        return { user: publicUser(me), request: request ? { status: request.status, reason: request.reason, created: request.created, decided: request.decided } : null };
-      }
-
-      case 'verify_request': {
-        const me = requireUser();
-        if (me.verified === 1) fail('Tu perfil ya está verificado.', 409);
-        if (db.verifications.some((v) => v.user === me.id && v.status === 'pending')) fail('Ya mandaste tus fotos: están en revisión.', 409);
-        if (input.consent !== '1') fail('Aceptá que la administración vea tus fotos para verificar tu perfil.');
-        const files = [];
-        for (const field of ['front', 'back', 'selfie']) {
-          const name = await storePhoto(input[field]);
-          if (!name) {
-            dropPhotos(files);
-            fail('Subí las tres fotos (DNI de frente, DNI de dorso y selfie con el DNI) en JPG, PNG o WebP, de hasta 10 MB cada una.');
-          }
-          files.push(name);
-        }
-        db.verifications.push({ id: newId(), user: me.id, status: 'pending', reason: '', files, created: now(), decided: 0 });
-        return { ok: true };
-      }
-
-      case 'verify_cancel': {
-        const me = requireUser();
-        const request = db.verifications.find((v) => v.user === me.id && v.status === 'pending');
-        if (request) {
-          dropPhotos(request.files);
-          Object.assign(request, { status: 'cancelled', files: [], decided: now() });
+        const target = userById(input.user);
+        if (!target || target.blocked === 1) fail('Perfil no encontrado.', 404);
+        if (target.id === me.id) fail('No podés calificarte a vos mismo.');
+        if (!Number.isInteger(input.stars) || input.stars < 1 || input.stars > 5) fail('Elegí de 1 a 5 estrellas.');
+        const comment = clean(input.comment);
+        if ([...comment].length > MAX_COMMENT) fail(`El comentario puede tener hasta ${MAX_COMMENT} letras.`);
+        const existing = db.ratings.find((r) => r.rater === me.id && r.rated === target.id);
+        if (existing) {
+          Object.assign(existing, { stars: input.stars, comment, updated: now() });
+        } else {
+          db.ratings.push({ id: newId(), rater: me.id, rated: target.id, stars: input.stars, comment, created: now(), updated: now() });
         }
         return { ok: true };
       }
 
-      case 'admin_verifications':
-        return {
-          items: db.verifications.filter((v) => v.status === 'pending').sort((a, b) => a.created - b.created).map((v) => {
-            const u = userById(v.user);
-            return { id: v.id, created: v.created, files: v.files, user: u.id, name: u.name, email: u.email, member_since: u.created };
-          }),
-        };
-
-      case 'admin_photo': {
-        const name = params.get('file') || '';
-        const pending = db.verifications.some((v) => v.status === 'pending' && v.files.includes(name));
-        if (!pending || !db.photos[name]) fail('Foto no encontrada.', 404);
-        return photoResponse(db.photos[name]);
-      }
-
-      case 'admin_verification': {
-        const request = db.verifications.find((v) => v.id === input.id && v.status === 'pending');
-        if (!request) fail('Esa verificación ya fue revisada.', 404);
-        const reason = REJECT_REASONS[input.reason];
-        if (input.action !== 'approve' && !(input.action === 'reject' && reason)) fail('Elegí aprobar o rechazar con un motivo.');
-        dropPhotos(request.files);
-        Object.assign(request, { status: input.action === 'approve' ? 'approved' : 'rejected', reason: reason || '', files: [], decided: now() });
-        if (input.action === 'approve') Object.assign(userById(request.user), { verified: 1, verified_at: now() });
+      case 'rate_delete': {
+        const me = requireUser();
+        db.ratings = db.ratings.filter((r) => !(r.rater === me.id && r.rated === input.user));
         return { ok: true };
       }
 
@@ -384,7 +342,6 @@
           week: db.trips.filter((t) => t.created >= weekAgo).length,
           drivers: db.users.length,
           reports: db.reports.filter((r) => r.status === 'open').length,
-          verifications: db.verifications.filter((v) => v.status === 'pending').length,
         };
       }
 
@@ -400,6 +357,27 @@
           }),
         };
 
+      case 'admin_ratings':
+        return {
+          items: [...db.ratings].sort((a, b) => b.updated - a.updated).map((r) => {
+            const rater = userById(r.rater);
+            const rated = userById(r.rated);
+            return {
+              id: r.id, stars: r.stars, comment: r.comment, updated: r.updated,
+              rater_id: rater.id, rater_name: rater.name, rater_email: rater.email,
+              rated_id: rated.id, rated_name: rated.name, rated_email: rated.email,
+            };
+          }),
+        };
+
+      case 'admin_rating': {
+        if (input.action !== 'delete') fail('Acción no válida.');
+        const before = db.ratings.length;
+        db.ratings = db.ratings.filter((r) => r.id !== input.id);
+        if (db.ratings.length === before) fail('Esa calificación ya no existe.', 404);
+        return { ok: true };
+      }
+
       case 'admin_trips':
         return {
           items: [...db.trips].sort((a, b) => b.created - a.created).map((t) => ({
@@ -410,13 +388,28 @@
 
       case 'admin_users':
         return {
-          items: [...db.users].sort((a, b) => b.created - a.created).map((u) => ({
-            id: u.id, email: u.email, name: u.name, created: u.created, is_admin: u.is_admin, blocked: u.blocked, verified: u.verified,
-            blocked_until: u.blocked_until || 0, blocked_reason: u.blocked_reason || '',
-            trips: db.trips.filter((t) => t.owner === u.id && t.status !== 'deleted').length,
-            trips_total: db.trips.filter((t) => t.owner === u.id).length,
-          })),
+          items: [...db.users].sort((a, b) => b.created - a.created).map((u) => {
+            const list = ratingsOf(u.id);
+            return {
+              id: u.id, email: u.email, name: u.name, created: u.created, is_admin: u.is_admin, blocked: u.blocked,
+              blocked_until: u.blocked_until || 0, blocked_reason: u.blocked_reason || '', google: u.google_sub ? 1 : 0,
+              trips: db.trips.filter((t) => t.owner === u.id && t.status !== 'deleted').length,
+              trips_total: db.trips.filter((t) => t.owner === u.id).length,
+              user_rating: average(list), user_ratings: list.length,
+            };
+          }),
         };
+
+      case 'admin_settings':
+        if (method === 'POST') {
+          const clientId = clean(input.googleClientId);
+          if (clientId && !GOOGLE_CLIENT_ID.test(clientId)) {
+            fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
+          }
+          db.settings.googleClientId = clientId;
+          return { ok: true };
+        }
+        return { googleClientId: db.settings.googleClientId };
 
       case 'admin_user': {
         const target = userById(input.id);
@@ -431,7 +424,6 @@
         }
         const changes = {
           unblock: { blocked: 0, blocked_until: 0, blocked_reason: '' }, make_admin: { is_admin: 1 }, remove_admin: { is_admin: 0 },
-          unverify: { verified: 0, verified_at: 0 },
         }[input.action];
         if (!changes) fail('Acción no válida.');
         Object.assign(target, changes);
@@ -455,26 +447,41 @@
     if (!url.startsWith('api.php')) return realFetch(resource, options);
     const params = new URL(url, 'https://prueba.local/').searchParams;
     let input = {};
-    if (options.body instanceof FormData) {
-      input = Object.fromEntries(options.body.entries());
-    } else {
-      try {
-        input = options.body ? JSON.parse(options.body) : {};
-      } catch {
-        input = {};
-      }
+    try {
+      input = options.body ? JSON.parse(options.body) : {};
+    } catch {
+      input = {};
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
     try {
-      const data = await handle(params.get('a') || '', params, input || {});
-      if (data instanceof Response) return data;
+      const data = await handle(options.method === 'POST' ? 'POST' : 'GET', params.get('a') || '', params, input || {});
       save();
-      return reply(data, options.method === 'POST' && ['trip_create', 'report', 'verify_request'].includes(params.get('a')) ? 201 : 200);
+      return reply(data, options.method === 'POST' && ['trip_create', 'report'].includes(params.get('a')) ? 201 : 200);
     } catch (error) {
       if (error instanceof Failure) return reply({ error: error.message }, error.status);
       console.error(error);
       return reply({ error: 'No se pudo completar la operación. Intentá nuevamente.' }, 503);
     }
+  };
+
+  // Dentro de Claude no se puede cargar el botón real de Google: este lo reemplaza y entra
+  // con una cuenta de ejemplo. En la página de verdad aparece el botón oficial.
+  window.google = {
+    accounts: {
+      id: {
+        initialize(config) {
+          this.callback = config.callback;
+        },
+        renderButton(target) {
+          const button = Object.assign(document.createElement('button'), {
+            type: 'button', className: 'btn btn-ghost', id: 'google-prueba', textContent: 'Continuar con Google (prueba)',
+          });
+          button.addEventListener('click', () => this.callback({ credential: GOOGLE_CREDENTIAL }));
+          target.replaceChildren(button);
+        },
+        disableAutoSelect() {},
+      },
+    },
   };
 
   document.addEventListener('click', async (event) => {

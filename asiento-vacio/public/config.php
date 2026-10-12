@@ -16,5 +16,9 @@ return [
     'data_dir' => getenv('ASIENTO_DATA_DIR')
         ?: (preg_match('#^(.*)/public_html(/|$)#', __DIR__, $m) ? $m[1] : dirname(__DIR__)) . '/asiento-vacio-datos',
 
+    // Claves públicas de Google para comprobar el ingreso con Google. El ID de cliente
+    // se carga desde Administrar → Ajustes, no hace falta tocar este archivo.
+    'google_certs_url' => getenv('ASIENTO_GOOGLE_CERTS_URL') ?: 'https://www.googleapis.com/oauth2/v3/certs',
+
     'timezone' => 'America/Argentina/Buenos_Aires',
 ];

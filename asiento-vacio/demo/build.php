@@ -21,8 +21,8 @@ $body = str_replace('src="favicon.svg"', 'src="' . $favicon . '"', $match[1]);
 $banner = <<<'HTML'
 <div class="demo-bar" role="note">
   <div class="wrap demo-in">
-    <p><strong>Modo prueba.</strong> Los viajes de ejemplo y todo lo que cargues quedan solo en este navegador: nada se publica de verdad.
-      Código de administración de prueba: <code>PRUEBA-2026</code></p>
+    <p><strong>Modo prueba.</strong> Los viajes y las opiniones de ejemplo, y todo lo que cargues, quedan solo en este navegador: nada se publica de verdad.
+      El botón de Google es simulado. Código de administración de prueba: <code>PRUEBA-2026</code></p>
     <button type="button" class="btn btn-sm btn-ghost" id="demo-reset">Empezar de cero</button>
   </div>
 </div>

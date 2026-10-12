@@ -4,29 +4,18 @@
 const PRICE_WORDS = /\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/i;
 const VIEWS = ['viajes', 'publicar', 'mis-viajes', 'perfil', 'perfil-publico', 'admin', 'entrar'];
 const PRIVATE_VIEWS = ['publicar', 'mis-viajes', 'perfil', 'admin'];
-const REJECT_REASONS = {
-  ilegible: 'Las fotos no se ven bien',
-  datos: 'El DNI no coincide con el nombre de la cuenta',
-  selfie: 'La selfie no muestra la cara junto al DNI',
-  otro: 'Otro motivo',
-};
 const REASONS = { precio: 'Cobra un precio o parece un negocio', datos: 'Teléfono o datos falsos', ofensivo: 'Ofensivo o peligroso', otro: 'Otro motivo' };
 
-const state = { csrf: '', today: '', user: null, trips: [], mine: [], tripsLoaded: false, next: 'viajes' };
+const state = { csrf: '', today: '', user: null, googleClientId: '', trips: [], mine: [], tripsLoaded: false, next: 'viajes' };
 const $ = (selector, root = document) => root.querySelector(selector);
 
-async function api(action, { body, form, query = '', retried = false } = {}) {
+async function api(action, { body, query = '', retried = false } = {}) {
   const options = { headers: { Accept: 'application/json' }, credentials: 'same-origin' };
-  if (body || form) {
+  if (body) {
     options.method = 'POST';
+    options.headers['Content-Type'] = 'application/json';
     options.headers['X-CSRF-Token'] = state.csrf;
-    if (form) {
-      // Con fotos: el navegador arma el envío multipart solo.
-      options.body = form;
-    } else {
-      options.headers['Content-Type'] = 'application/json';
-      options.body = JSON.stringify(body);
-    }
+    options.body = JSON.stringify(body);
   }
   let response;
   try {
@@ -36,9 +25,9 @@ async function api(action, { body, form, query = '', retried = false } = {}) {
   }
   const data = await response.json().catch(() => ({}));
   // Si la sesión venció, pedimos un token nuevo y reintentamos una sola vez.
-  if (response.status === 403 && data.csrf && (body || form) && !retried) {
+  if (response.status === 403 && data.csrf && body && !retried) {
     await loadSession();
-    return api(action, { body, form, query, retried: true });
+    return api(action, { body, query, retried: true });
   }
   if (!response.ok) throw new Error(data.error || 'No se pudo completar la operación. Intentá nuevamente.');
   return data;
@@ -49,6 +38,7 @@ async function loadSession() {
   state.csrf = session.csrf;
   state.today = session.today;
   state.user = session.user;
+  state.googleClientId = session.googleClientId || '';
 }
 
 /* Fechas */
@@ -130,15 +120,15 @@ function tripCard(trip, { manage = false } = {}) {
 
   $('.driver strong', card).textContent = trip.driver;
   $('.driver-link', card).href = `#perfil-${trip.driver_id}`;
-  $('.driver .verified', card).hidden = !trip.driver_verified;
+  $('.driver .rating', card).replaceWith(ratingBadge(trip.driver_rating, trip.driver_ratings));
   const tel = `tel:+${trip.phone_digits}`;
   $('.phone', card).href = tel;
   $('.phone span', card).textContent = trip.phone;
   $('.btn-call', card).href = tel;
   let message = `Hola ${trip.driver}, vi en Asiento Vacío tu viaje de ${trip.origin} a ${trip.destination} `
     + `del ${longDay.format(utcDate(trip.day)).replace(',', '')} a las ${trip.hour}. ¿Te queda algún asiento libre?`;
-  // Un acompañante verificado manda su perfil, así el conductor ve la insignia.
-  if (state.user?.verified && !trip.mine) message += ` Mi perfil verificado: ${profileUrl(state.user.id)}`;
+  // Con cuenta, el mensaje lleva el perfil del acompañante, así el conductor ve sus calificaciones.
+  if (state.user && !trip.mine) message += ` Mi perfil en Asiento Vacío: ${profileUrl(state.user.id)}`;
   $('.btn-wa', card).href = `https://wa.me/${trip.phone_digits}?text=${encodeURIComponent(message)}`;
 
   const remove = $('.delete', card);
@@ -198,11 +188,11 @@ function renderTrips() {
   const from = normalize(filters.get('from'));
   const to = normalize(filters.get('to'));
   const day = filters.get('day');
-  const verifiedOnly = filters.get('verified') === 'on';
+  const wellRated = filters.get('rated') === 'on';
   const list = state.trips.filter((t) => (!from || normalize(t.origin).includes(from))
     && (!to || normalize(t.destination).includes(to))
     && (!day || t.day === day)
-    && (!verifiedOnly || t.driver_verified));
+    && (!wellRated || (t.driver_ratings > 0 && t.driver_rating >= 4)));
   $('#trips').replaceChildren(...list.map((t) => tripCard(t)));
   $('#empty').hidden = list.length > 0;
   $('#empty strong').textContent = state.trips.length ? 'No hay viajes que coincidan.' : 'Todavía no hay viajes publicados.';
@@ -249,15 +239,13 @@ async function preparePublish() {
   const form = $('#publish');
   form.day.min = state.today;
   form.day.max = addDays(state.today, 180);
-  if (!form.driver.value) form.driver.value = state.user.name;
-  applyVerifiedName(form);
+  // Las calificaciones son de la cuenta, así que el viaje sale con el nombre de la cuenta.
+  form.driver.value = state.user.name;
   if (!form.phone.value) {
     if (!state.mine.length) await loadMine();
     // Reusamos los datos del último viaje para no tener que escribirlos de nuevo.
     const last = [...state.mine].sort((a, b) => b.created - a.created)[0];
     if (last) {
-      form.driver.value = last.driver;
-      applyVerifiedName(form);
       form.phone.value = last.phone;
       if (!form.vehicle.value) form.vehicle.value = last.vehicle;
     }
@@ -268,7 +256,7 @@ function publishData(form) {
   const field = (name) => form[name].value.trim();
   return {
     origin: field('origin'), destination: field('destination'), day: field('day'), hour: field('hour'),
-    seats: Number(form.seats.value), driver: field('driver'), phone: field('phone'),
+    seats: Number(form.seats.value), phone: field('phone'),
     vehicle: field('vehicle'), notes: field('notes'),
     confirmPrivate: form.confirmPrivate.checked, confirmPhone: form.confirmPhone.checked,
   };
@@ -320,14 +308,66 @@ async function authenticate(event) {
   const body = Object.fromEntries(new FormData(form));
   await busy(form, async () => {
     const result = await api(form.id, { body });
-    state.csrf = result.csrf;
-    state.user = result.user;
-    state.mine = [];
     form.reset();
-    updateAuthUI();
-    toast(form.id === 'register' ? `¡Bienvenido/a, ${result.user.name}!` : `Hola, ${result.user.name}.`);
-    go(form.id === 'register' && state.next === 'mis-viajes' ? 'perfil' : state.next);
+    signedIn(result, form.id === 'register');
   });
+}
+
+function signedIn(result, isNew) {
+  state.csrf = result.csrf;
+  state.user = result.user;
+  state.mine = [];
+  updateAuthUI();
+  toast(isNew ? `¡Bienvenido/a, ${result.user.name}!` : `Hola, ${result.user.name}.`);
+  go(isNew && state.next === 'mis-viajes' ? 'perfil' : state.next);
+}
+
+/* Ingreso con Google: el botón lo dibuja Google y el servidor comprueba el comprobante que entrega. */
+let googleScript = null;
+function loadGoogleScript() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  googleScript ??= new Promise((resolve, reject) => {
+    const script = Object.assign(document.createElement('script'), { src: 'https://accounts.google.com/gsi/client', async: true });
+    script.addEventListener('load', resolve);
+    script.addEventListener('error', () => {
+      googleScript = null;
+      reject(new Error('No se pudo cargar el botón de Google.'));
+    });
+    document.head.append(script);
+  });
+  return googleScript;
+}
+
+async function renderGoogle() {
+  const box = $('#google-box');
+  box.hidden = !state.googleClientId || Boolean(state.user);
+  if (box.hidden) return;
+  try {
+    await loadGoogleScript();
+  } catch {
+    box.hidden = true;
+    return;
+  }
+  if (state.googleReadyFor !== state.googleClientId) {
+    window.google.accounts.id.initialize({ client_id: state.googleClientId, callback: googleSignIn, ux_mode: 'popup', context: 'signin' });
+    state.googleReadyFor = state.googleClientId;
+  }
+  const target = $('#google-button');
+  window.google.accounts.id.renderButton(target, {
+    type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill', locale: 'es',
+    width: Math.max(200, Math.min(360, box.clientWidth || 320)),
+  });
+}
+
+async function googleSignIn(response) {
+  const error = $('#google-error');
+  error.hidden = true;
+  try {
+    signedIn(await api('google', { body: { credential: response.credential } }), false);
+  } catch (problem) {
+    error.textContent = problem.message;
+    error.hidden = false;
+  }
 }
 
 async function logout() {
@@ -341,6 +381,7 @@ async function logout() {
   state.user = null;
   state.mine = [];
   $('#publish').reset();
+  window.google?.accounts?.id?.disableAutoSelect();
   updateAuthUI();
   go('viajes');
 }
@@ -370,7 +411,7 @@ async function sendReport(event) {
 }
 
 /* Administrar */
-const admin = { trips: [], users: [] };
+const admin = { trips: [], users: [], ratings: [] };
 const stamp = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short', year: 'numeric' });
 const when = (seconds) => stamp.format(new Date(seconds * 1000)).replace(/\./g, '');
 
@@ -403,10 +444,10 @@ async function loadAdmin() {
   $('#claim').hidden = isAdmin;
   $('#admin-panel').hidden = !isAdmin;
   if (!isAdmin) return;
-  let overview, reports, trips, users, verifications;
+  let overview, reports, trips, users, ratings, settings;
   try {
-    [overview, reports, trips, users, verifications] = await Promise.all(
-      ['admin_overview', 'admin_reports', 'admin_trips', 'admin_users', 'admin_verifications'].map((a) => api(a)));
+    [overview, reports, trips, users, ratings, settings] = await Promise.all(
+      ['admin_overview', 'admin_reports', 'admin_trips', 'admin_users', 'admin_ratings', 'admin_settings'].map((a) => api(a)));
   } catch (error) {
     toast(error.message);
     return;
@@ -416,18 +457,19 @@ async function loadAdmin() {
   $('#st-drivers').textContent = overview.drivers;
   $('#st-reports').textContent = overview.reports;
   $('#admin-tabs [data-tab="reports"]').textContent = overview.reports ? `Denuncias (${overview.reports})` : 'Denuncias';
-  $('#admin-tabs [data-tab="verifications"]').textContent = overview.verifications ? `Verificaciones (${overview.verifications})` : 'Verificaciones';
   admin.trips = trips.items;
   admin.users = users.items;
   renderReports(reports.items);
-  renderVerifications(verifications.items);
+  admin.ratings = ratings.items;
+  renderRatings();
+  renderSettings(settings);
   renderAdminTrips();
   renderUsers();
 }
 
 function selectAdminTab(name) {
   document.querySelectorAll('#admin-tabs [data-tab]').forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.tab === name)));
-  for (const pane of ['reports', 'verifications', 'trips', 'users']) $(`#pane-${pane}`).hidden = pane !== name;
+  for (const pane of ['reports', 'ratings', 'trips', 'users', 'settings']) $(`#pane-${pane}`).hidden = pane !== name;
 }
 
 function showTripsOf(email) {
@@ -488,7 +530,7 @@ const ROLE_FILTERS = {
   drivers: (u) => Number(u.trips_total) > 0,
   riders: (u) => Number(u.trips_total) === 0,
   suspended: (u) => Number(u.blocked) === 1,
-  verified: (u) => Number(u.verified) === 1,
+  lowrated: (u) => Number(u.user_ratings) > 0 && Number(u.user_rating) < 3,
 };
 const until = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const suspendedBadge = (u) => badge(Number(u.blocked_until)
@@ -503,15 +545,15 @@ function renderUsers() {
     const self = u.id === state.user.id;
     const isAdmin = Number(u.is_admin) === 1;
     const blocked = Number(u.blocked) === 1;
-    const verified = Number(u.verified) === 1;
     const trips = Number(u.trips);
     return el('article', { className: 'item' },
       el('div', { className: 'badges' },
         badge(Number(u.trips_total) > 0 ? 'Conductor' : 'Acompañante', 'off'),
-        isAdmin && badge('Administración'), verified && badge('Verificado', 'verified'),
+        isAdmin && badge('Administración'), Number(u.google) === 1 && badge('Google', 'off'),
         blocked && suspendedBadge(u), self && badge('Vos', 'off')),
       el('p', { className: 'item-title', textContent: u.name }),
-      el('p', { className: 'item-meta', textContent: `${u.email} · desde el ${when(u.created)} · ${trips === 1 ? '1 viaje' : `${trips} viajes`}` }),
+      el('p', { className: 'item-meta' }, `${u.email} · desde el ${when(u.created)} · ${trips === 1 ? '1 viaje' : `${trips} viajes`} · `,
+        ratingBadge(u.user_rating === null ? null : Number(u.user_rating), Number(u.user_ratings))),
       blocked && u.blocked_reason && el('p', { className: 'item-reason', textContent: `Motivo: ${u.blocked_reason}` }),
       el('div', { className: 'item-actions' },
         button('Ver viajes', () => showTripsOf(u.email)),
@@ -521,9 +563,7 @@ function renderUsers() {
         !self && !blocked && (isAdmin
           ? button('Quitar administración', () => adminAction('admin_user', { id: u.id, action: 'remove_admin' }, { done: 'Ya no es administrador.' }))
           : button('Hacer administrador', () => adminAction('admin_user', { id: u.id, action: 'make_admin' },
-            { question: `¿Darle acceso de administración a ${u.name}?`, ok: 'Dar acceso', done: 'Ahora es administrador.' }))),
-        verified && button('Quitar verificación', () => adminAction('admin_user', { id: u.id, action: 'unverify' },
-          { question: `¿Quitarle la insignia de perfil verificado a ${u.name}?`, ok: 'Quitar verificación', done: 'Ya no figura como verificado.' }))));
+            { question: `¿Darle acceso de administración a ${u.name}?`, ok: 'Dar acceso', done: 'Ahora es administrador.' })))));
   });
   $('#admin-users').replaceChildren(...(rows.length ? rows : [emptyRow('No hay usuarios que coincidan.')]));
 }
@@ -543,46 +583,41 @@ function openSuspend(u) {
   }, { once: true });
 }
 
-function renderVerifications(items) {
-  const rows = items.map((v) => {
-    const reason = el('select', { ariaLabel: 'Motivo del rechazo' },
-      el('option', { value: '', textContent: 'Motivo para rechazar…' }),
-      ...Object.entries(REJECT_REASONS).map(([value, text]) => el('option', { value, textContent: text })));
-    const photos = el('div', { className: 'photos' }, ...v.files.map((file, i) => {
-      const img = el('img', { alt: ['DNI de frente', 'DNI de dorso', 'Selfie con el DNI'][i] });
-      img.addEventListener('click', () => img.classList.toggle('zoom'));
-      loadPhoto(img, file);
-      return el('figure', {}, img, el('figcaption', { textContent: img.alt }));
-    }));
-    return el('article', { className: 'item' },
-      el('div', { className: 'badges' }, badge(`Enviada el ${when(v.created)}`, 'off')),
-      el('p', { className: 'item-title', textContent: v.name }),
-      el('p', { className: 'item-meta', textContent: `${v.email} · en Asiento Vacío desde el ${when(v.member_since)}` }),
-      photos,
-      el('div', { className: 'decide' },
-        button('Aprobar', () => adminAction('admin_verification', { id: v.id, action: 'approve' },
-          { question: `¿Aprobar a ${v.name}? Las fotos se borran y su perfil muestra la insignia.`, ok: 'Aprobar', done: 'Perfil verificado. Las fotos se borraron.' }), ''),
-        reason,
-        button('Rechazar', () => {
-          if (!reason.value) {
-            toast('Elegí el motivo del rechazo.');
-            reason.focus();
-            return;
-          }
-          adminAction('admin_verification', { id: v.id, action: 'reject', reason: reason.value }, { done: 'Verificación rechazada. Las fotos se borraron.' });
-        }, 'btn-danger')));
-  });
-  $('#admin-verifications').replaceChildren(...(rows.length ? rows : [emptyRow('No hay verificaciones pendientes.')]));
+function renderRatings() {
+  const lowOnly = $('#filter-ratings').value === 'low';
+  const list = admin.ratings.filter((r) => !lowOnly || Number(r.stars) <= 2);
+  const rows = list.map((r) => el('article', { className: 'item' },
+    el('div', { className: 'badges' }, Number(r.stars) <= 2 && badge('Baja', 'bad'), badge(when(r.updated), 'off')),
+    el('p', { className: 'item-title' }, starsText(Number(r.stars)), ` ${r.rater_name} calificó a ${r.rated_name}`),
+    el('p', { className: 'item-meta', textContent: `${r.rater_email} → ${r.rated_email}` }),
+    r.comment && el('p', { className: 'item-quote', textContent: r.comment }),
+    el('div', { className: 'item-actions' },
+      button('Ver perfil', () => go(`perfil-${r.rated_id}`)),
+      button('Ver quién calificó', () => showUser(r.rater_email)),
+      button('Borrar calificación', () => adminAction('admin_rating', { id: r.id, action: 'delete' },
+        { question: `¿Borrar la calificación de ${r.rater_name} a ${r.rated_name}?`, ok: 'Borrar', done: 'Calificación borrada.' }), 'btn-danger'))));
+  $('#admin-ratings').replaceChildren(...(rows.length ? rows : [emptyRow(lowOnly ? 'No hay calificaciones bajas.' : 'Todavía no hay calificaciones.')]));
 }
 
-// Las fotos se piden con la sesión y se muestran desde memoria: nunca tienen una dirección pública.
-async function loadPhoto(img, file) {
-  try {
-    const response = await fetch(`api.php?a=admin_photo&file=${encodeURIComponent(file)}`, { credentials: 'same-origin' });
-    if (response.ok) img.src = URL.createObjectURL(await response.blob());
-  } catch {
-    img.alt += ' (no se pudo cargar)';
-  }
+function renderSettings(settings) {
+  const form = $('#settings-form');
+  form.googleClientId.value = settings.googleClientId;
+  $('#google-status').textContent = settings.googleClientId
+    ? 'Activado: en "Entrar" aparece el botón "Continuar con Google".'
+    : 'Apagado: todavía no cargaste el ID de cliente de Google.';
+  document.querySelectorAll('.site-origin').forEach((node) => { node.textContent = location.origin; });
+}
+
+async function saveSettings(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const googleClientId = form.googleClientId.value.trim();
+  await busy(form, async () => {
+    await api('admin_settings', { body: { googleClientId } });
+    state.googleClientId = googleClientId;
+    toast(googleClientId ? 'Listo: el ingreso con Google quedó activado.' : 'Listo: el ingreso con Google quedó apagado.');
+    await loadAdmin();
+  });
 }
 
 async function claim(event) {
@@ -602,61 +637,92 @@ async function claim(event) {
 const profileUrl = (id) => `${location.href.split('#')[0]}#perfil-${id}`;
 const memberSince = (seconds) => `En Asiento Vacío desde el ${when(seconds)}`;
 
-function applyVerifiedName(form) {
-  // Con el perfil verificado, los viajes salen con el nombre que se verificó.
-  const verified = Boolean(state.user?.verified);
-  form.driver.readOnly = verified;
-  if (verified) form.driver.value = state.user.name;
-  form.driver.title = verified ? 'Tu perfil está verificado: se usa el nombre de tu cuenta.' : '';
+const decimal = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const ratingsText = (count) => (count === 1 ? '1 calificación' : `${count} calificaciones`);
+
+function starIcon() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  use.setAttribute('href', '#i-star');
+  svg.append(use);
+  return svg;
+}
+
+// Promedio compacto para tarjetas y listas: ★ 4,8 (12).
+function ratingBadge(average, count) {
+  if (!count) return el('span', { className: 'rating none', textContent: 'Sin calificaciones' });
+  return el('span', { className: 'rating', title: `${decimal.format(average)} de 5 estrellas · ${ratingsText(count)}` },
+    starIcon(), decimal.format(average), el('span', { className: 'count', textContent: `(${count})` }));
+}
+
+function starsText(stars) {
+  const node = el('span', { className: 'stars', textContent: '★'.repeat(stars) }, el('span', { className: 'off', textContent: '★'.repeat(5 - stars) }));
+  node.setAttribute('role', 'img');
+  node.setAttribute('aria-label', `${stars} de 5 estrellas`);
+  return node;
+}
+
+function ratingSummary(target, average, count, emptyText) {
+  target.replaceChildren(...(count
+    ? [starsText(Math.round(average)), ` ${decimal.format(average)} · ${ratingsText(count)}`]
+    : [emptyText]));
+}
+
+function reviewItem(review) {
+  return el('article', { className: 'review' },
+    el('div', { className: 'review-head' },
+      el('a', { href: `#perfil-${review.rater_id}`, textContent: review.rater_name }),
+      el('span', { className: 'review-date', textContent: when(review.updated) })),
+    starsText(Number(review.stars)),
+    review.comment && el('p', { textContent: review.comment }));
 }
 
 async function loadProfile() {
+  const me = state.user;
+  $('#me-name').textContent = me.name;
+  $('#me-google').hidden = !me.google;
+  $('#me-meta').textContent = `${me.email} · ${memberSince(me.created)}`;
+  $('#me-link').value = profileUrl(me.id);
   let data;
   try {
-    data = await api('verification');
+    data = await api('profile', { query: `&id=${encodeURIComponent(me.id)}` });
   } catch (error) {
     toast(error.message);
     return;
   }
-  state.user = data.user;
-  const verified = data.user.verified;
-  const pending = data.request?.status === 'pending';
-  $('#me-name').textContent = data.user.name;
-  $('#me-badge').hidden = !verified;
-  $('#me-meta').textContent = `${data.user.email} · ${memberSince(data.user.created)}`;
-  $('#verify-done').hidden = !verified;
-  $('#me-link').value = profileUrl(data.user.id);
-  $('#verify-pending').hidden = verified || !pending;
-  $('#verify-form').hidden = verified || pending;
-  const rejected = !verified && data.request?.status === 'rejected';
-  $('#verify-rejected').hidden = !rejected;
-  $('#verify-rejected').textContent = rejected ? `No pudimos verificar tu perfil: ${data.request.reason} Podés intentar de nuevo.` : '';
+  ratingSummary($('#me-rating'), data.profile.rating, data.profile.ratings, 'Todavía no tenés calificaciones.');
+  $('#me-reviews').replaceChildren(...data.reviews.map(reviewItem));
 }
 
-async function sendVerification(event) {
+async function sendRating(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  if (!form.checkValidity()) {
-    showError(form, 'Elegí las tres fotos y aceptá que la administración las vea.');
+  const stars = Number(new FormData(form).get('stars'));
+  if (!stars) {
+    showError(form, 'Elegí de 1 a 5 estrellas.');
     return;
   }
   await busy(form, async () => {
-    await api('verify_request', { form: new FormData(form) });
-    form.reset();
-    toast('Listo: tus fotos quedaron en revisión.');
-    await loadProfile();
+    await api('rate', { body: { user: form.dataset.user, stars, comment: form.comment.value.trim() } });
+    state.tripsLoaded = false;
+    toast('¡Gracias! Tu calificación quedó guardada.');
+    await loadPublicProfile(form.dataset.user);
   });
 }
 
-async function cancelVerification() {
-  if (!(await ask('¿Cancelar la verificación? Tus fotos se borran.', 'Cancelar y borrar'))) return;
+async function deleteRating() {
+  const form = $('#rate-form');
+  if (!(await ask('¿Borrar tu calificación?', 'Borrar'))) return;
   try {
-    await api('verify_cancel', { body: {} });
-    toast('Listo: tus fotos se borraron.');
+    await api('rate_delete', { body: { user: form.dataset.user } });
+    toast('Tu calificación se borró.');
   } catch (error) {
     toast(error.message);
   }
-  await loadProfile();
+  state.tripsLoaded = false;
+  await loadPublicProfile(form.dataset.user);
 }
 
 async function copyProfileLink() {
@@ -671,23 +737,40 @@ async function copyProfileLink() {
 }
 
 async function loadPublicProfile(id) {
+  const form = $('#rate-form');
   let data;
   try {
     data = await api('profile', { query: `&id=${encodeURIComponent(id)}` });
   } catch (error) {
     $('#pp-name').textContent = error.message;
-    $('#pp-verified').hidden = true;
-    $('#pp-unverified').hidden = true;
+    for (const node of ['#pp-rating', '#pp-reviews', '#pp-trips']) $(node).replaceChildren();
     $('#pp-meta').textContent = '';
-    $('#pp-trips').replaceChildren();
+    form.hidden = true;
+    $('#rate-login').hidden = true;
     $('#pp-empty').hidden = true;
     return;
   }
-  $('#pp-name').textContent = data.profile.name;
-  $('#pp-verified').hidden = !data.profile.verified;
-  $('#pp-unverified').hidden = data.profile.verified;
-  $('#pp-meta').textContent = memberSince(data.profile.created)
-    + (data.profile.verified ? ` · Verificado el ${when(data.profile.verifiedAt)}` : '');
+  const { profile } = data;
+  $('#pp-name').textContent = profile.name;
+  ratingSummary($('#pp-rating'), profile.rating, profile.ratings, 'Todavía no tiene calificaciones.');
+  $('#pp-meta').textContent = memberSince(profile.created);
+  const canRate = Boolean(state.user) && state.user.id !== profile.id;
+  form.hidden = !canRate;
+  $('#rate-login').hidden = Boolean(state.user);
+  if (canRate) {
+    form.reset();
+    showError(form, '');
+    form.dataset.user = profile.id;
+    $('#rate-name').textContent = profile.name;
+    if (data.mine) {
+      form.querySelector(`input[name="stars"][value="${data.mine.stars}"]`).checked = true;
+      form.comment.value = data.mine.comment;
+    }
+    $('#rate-delete').hidden = !data.mine;
+  }
+  $('#pp-reviews').replaceChildren(...(data.reviews.length
+    ? data.reviews.map(reviewItem)
+    : [el('p', { className: 'muted', textContent: 'Todavía no hay opiniones.' })]));
   $('#pp-trips').replaceChildren(...data.trips.map((t) => tripCard(t)));
   $('#pp-empty').hidden = data.trips.length > 0;
 }
@@ -713,6 +796,7 @@ function route() {
     if (state.user) view = 'viajes';
     state.next = 'mis-viajes';
   }
+  if (view === 'entrar') renderGoogle();
   for (const name of VIEWS) $(`#view-${name}`).hidden = name !== view;
   document.querySelectorAll('[data-view]').forEach((link) => {
     if (link.dataset.view === view) link.setAttribute('aria-current', 'page');
@@ -745,9 +829,12 @@ async function init() {
   $('#filter-trips').addEventListener('input', renderAdminTrips);
   $('#filter-users').addEventListener('input', renderUsers);
   $('#filter-role').addEventListener('change', renderUsers);
-  $('#verify-form').addEventListener('submit', sendVerification);
-  $('#verify-cancel').addEventListener('click', cancelVerification);
   $('#copy-link').addEventListener('click', copyProfileLink);
+  $('#rate-form').addEventListener('submit', sendRating);
+  $('#rate-form').addEventListener('change', (event) => showError(event.currentTarget, ''));
+  $('#rate-delete').addEventListener('click', deleteRating);
+  $('#filter-ratings').addEventListener('change', renderRatings);
+  $('#settings-form').addEventListener('submit', saveSettings);
   window.addEventListener('hashchange', route);
   try {
     await loadSession();

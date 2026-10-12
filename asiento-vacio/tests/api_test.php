@@ -11,19 +11,46 @@ $root = dirname(__DIR__) . '/public';
 $data = sys_get_temp_dir() . '/asiento-test-' . bin2hex(random_bytes(4));
 $port = random_int(20000, 40000);
 $base = "http://127.0.0.1:$port";
-$env = [...getenv(), 'ASIENTO_DATA_DIR' => $data, 'ASIENTO_ADMIN_CODE_SHA256' => hash('sha256', 'TESTCODE1234')];
 
-// Base con el formato anterior (sin administración), como la que ya puede haber en el hosting.
+// Clave de prueba que hace de "Google": firma los comprobantes y publica su clave pública.
+$b64u = fn(string $s) => rtrim(strtr(base64_encode($s), '+/', '-_'), '=');
+$googleKey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+$rsa = openssl_pkey_get_details($googleKey)['rsa'];
+$certs = "$data-certs.json";
+file_put_contents($certs, json_encode(['keys' => [['kty' => 'RSA', 'kid' => 'clave-prueba', 'alg' => 'RS256', 'use' => 'sig', 'n' => $b64u($rsa['n']), 'e' => $b64u($rsa['e'])]]]));
+const CLIENT_ID = '1234567890-pruebaasiento.apps.googleusercontent.com';
+$googleToken = function (array $claims = [], array $header = [], $key = null) use ($googleKey, $b64u): string {
+    $claims = array_filter([
+        'iss' => 'https://accounts.google.com', 'aud' => CLIENT_ID, 'sub' => '1098765432101234567',
+        'email' => 'Gabi.Gomez@gmail.com', 'email_verified' => true, 'name' => 'Gabriela Gómez',
+        'iat' => time(), 'exp' => time() + 3600, ...$claims,
+    ], fn($v) => $v !== null);
+    $head = $b64u(json_encode(['alg' => 'RS256', 'kid' => 'clave-prueba', 'typ' => 'JWT', ...$header]));
+    $body = $b64u(json_encode($claims));
+    openssl_sign("$head.$body", $signature, $key ?? $googleKey, OPENSSL_ALGO_SHA256);
+    return "$head.$body." . $b64u($signature);
+};
+
+$env = [...getenv(), 'ASIENTO_DATA_DIR' => $data, 'ASIENTO_ADMIN_CODE_SHA256' => hash('sha256', 'TESTCODE1234'),
+    'ASIENTO_GOOGLE_CERTS_URL' => $certs];
+
+// Base con el formato anterior (sin administración), como la que ya puede haber en el hosting,
+// con restos de la verificación con DNI que se quitó.
 mkdir("$data/sesiones", 0700, true);
+mkdir("$data/verificaciones", 0700);
+file_put_contents("$data/verificaciones/" . str_repeat('ab', 16) . '.jpg', 'foto vieja de un DNI');
 $legacy = new PDO("sqlite:$data/viajes.sqlite");
 $legacy->exec('CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password TEXT NOT NULL, created INTEGER NOT NULL)');
 $legacy->prepare('INSERT INTO users VALUES (?,?,?,?,?)')->execute(['cuenta-vieja', 'vieja@example.com', 'Cuenta vieja', password_hash('una-clave-de-prueba', PASSWORD_DEFAULT), time()]);
+$legacy->exec("CREATE TABLE verifications (id TEXT PRIMARY KEY, user TEXT, status TEXT, reason TEXT, files TEXT, created INTEGER, decided INTEGER)");
+$legacy->exec("INSERT INTO verifications VALUES ('v1', 'cuenta-vieja', 'pending', '', '[\"ab.jpg\"]', 1, 0)");
 $legacy = null;
 
 $server = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", '-t', $root], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, $env);
-register_shutdown_function(function () use ($server, $data) {
+register_shutdown_function(function () use ($server, $data, $certs) {
     proc_terminate($server);
     exec('rm -rf ' . escapeshellarg($data));
+    @unlink($certs);
 });
 for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
     usleep(100000);
@@ -266,75 +293,109 @@ check('no se puede denunciar un viaje borrado', $anon->post('report', ['trip' =>
 check('restaurar un viaje borrado', $admin->post('admin_trip', ['id' => $tripId, 'action' => 'restore'])[0] === 200 && in_array($tripId, $publicIds(), true));
 check('borrar desde la lista pública (moderación)', $admin->post('trip_delete', ['id' => $tripId])[0] === 200 && !in_array($tripId, $publicIds(), true));
 
-echo "Verificación de perfiles\n";
-$picture = function (int $width = 2400, int $height = 1500): string {
-    $file = tempnam(sys_get_temp_dir(), 'foto') . '.jpg';
-    $image = imagecreatetruecolor($width, $height);
-    imagefill($image, 0, 0, imagecolorallocate($image, 30, 90, 200));
-    imagejpeg($image, $file, 95);
-    return $file;
-};
-$fake = tempnam(sys_get_temp_dir(), 'falsa');
-file_put_contents($fake, 'esto no es una foto');
-$three = ['front' => $picture(), 'back' => $picture(), 'selfie' => $picture(900, 1200)];
-$stored = fn() => array_values(array_diff(scandir("$data/verificaciones") ?: [], ['.', '..']));
+echo "Restos de la verificación con DNI\n";
+check('se borraron las fotos de DNI que hubiera en el servidor', !is_dir("$data/verificaciones"));
+$tables = array_column((new PDO("sqlite:$data/viajes.sqlite"))->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(), 'name');
+check('se borró la tabla de verificaciones', !in_array('verifications', $tables, true), $tables);
+check('la verificación ya no existe', $driver->get('verification')[0] === 404 && $admin->get('admin_verifications')[0] === 404
+    && $admin->bytes('api.php?a=admin_photo&file=' . str_repeat('ab', 16) . '.jpg')[0] === 404);
 
-$carla = new Client($base);
-[, $body] = $carla->register('pasajera@example.com', 'Carla');
-$carlaId = $body['user']['id'];
-check('verificar pide cuenta', $anon->upload('verify_request', ['consent' => '1'], $three)[0] === 401);
-[$code, $body] = $carla->get('verification');
-check('al principio el perfil no está verificado', $code === 200 && $body['user']['verified'] === false && $body['request'] === null, $body);
-check('pide aceptar que la administración vea las fotos', $carla->upload('verify_request', [], $three)[0] === 400);
-check('pide las tres fotos', $carla->upload('verify_request', ['consent' => '1'], ['front' => $three['front'], 'back' => $three['back']])[0] === 400);
-check('rechaza archivos que no son fotos', $carla->upload('verify_request', ['consent' => '1'], [...$three, 'back' => $fake])[0] === 400);
-check('si falla no deja fotos guardadas', $stored() === [], $stored());
-check('manda las fotos', $carla->upload('verify_request', ['consent' => '1'], $three)[0] === 201);
-check('queda en revisión', ($carla->get('verification')[1]['request']['status'] ?? '') === 'pending');
-check('no se manda dos veces mientras se revisa', $carla->upload('verify_request', ['consent' => '1'], $three)[0] === 409);
-$pending = $find($admin->get('admin_verifications')[1]['items'], 'email', 'pasajera@example.com');
-check('administración ve la solicitud con el nombre de la cuenta', $pending['name'] === 'Carla' && count($pending['files']) === 3, $pending);
-check('las fotos quedan fuera de la carpeta pública', count($stored()) === 3 && !is_dir("$root/verificaciones"), $stored());
-$photo = 'api.php?a=admin_photo&file=' . $pending['files'][0];
-check('sin cuenta no se ven las fotos', $anon->bytes($photo)[0] === 401);
-check('la misma persona no puede ver sus fotos', $carla->bytes($photo)[0] === 403);
-[$code, $jpeg, $type] = $admin->bytes($photo);
-$size = @getimagesizefromstring($jpeg);
-check('administración ve la foto, achicada y recodificada', $code === 200 && $type === 'image/jpeg' && $size[0] === 1600 && $size[1] === 1000, [$code, $type, $size]);
-check('no se puede pedir cualquier archivo', $admin->bytes('api.php?a=admin_photo&file=../viajes.sqlite')[0] === 404);
-check('el resumen cuenta verificaciones pendientes', $admin->get('admin_overview')[1]['verifications'] === 1);
-check('rechazar pide motivo', $admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'reject'])[0] === 400);
-check('rechazar con motivo', $admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'reject', 'reason' => 'ilegible'])[0] === 200);
-check('al rechazar se borran las fotos', $stored() === [] && $admin->bytes($photo)[0] === 404, $stored());
-$request = $carla->get('verification')[1]['request'];
-check('la persona ve el motivo', $request['status'] === 'rejected' && $request['reason'] === 'Las fotos no se ven bien.', $request);
-check('puede volver a intentar', $carla->upload('verify_request', ['consent' => '1'], $three)[0] === 201);
-$pending = $find($admin->get('admin_verifications')[1]['items'], 'email', 'pasajera@example.com');
-check('aprobar', $admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'approve'])[0] === 200);
-check('al aprobar también se borran las fotos', $stored() === [], $stored());
-check('el perfil queda verificado', $carla->get('session')[1]['user']['verified'] === true);
-check('una verificación revisada no se revisa de nuevo', $admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'approve'])[0] === 404);
-[$code, $body] = $anon->get('profile', "&id=$carlaId");
-check('perfil público con la insignia y sin correo', $code === 200 && $body['profile']['verified'] === true && $body['profile']['name'] === 'Carla' && !isset($body['profile']['email']), $body);
-check('perfil inexistente', $anon->get('profile', '&id=nada')[0] === 404);
-check('ya verificado no vuelve a pedir', $carla->upload('verify_request', ['consent' => '1'], $three)[0] === 409);
+echo "Ingreso con Google\n";
+[$code, $body] = $anon->get('session');
+check('sin configurar, el ingreso con Google está apagado', $body['googleClientId'] === '' && $anon->post('google', ['credential' => $googleToken()])[0] === 404);
+check('solo administración cambia los ajustes', $other->post('admin_settings', ['googleClientId' => CLIENT_ID])[0] === 403
+    && $anon->get('admin_settings')[0] === 401);
+check('rechaza un ID de cliente mal copiado', $admin->post('admin_settings', ['googleClientId' => 'mi-id-de-google'])[0] === 400);
+check('guardar el ID de cliente', $admin->post('admin_settings', ['googleClientId' => " " . CLIENT_ID . " "])[0] === 200
+    && $admin->get('admin_settings')[1]['googleClientId'] === CLIENT_ID && $anon->get('session')[1]['googleClientId'] === CLIENT_ID);
+$otherKey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+$bad = [
+    'un texto cualquiera' => 'no-es-un-comprobante',
+    'firmado por otra clave' => $googleToken([], [], $otherKey),
+    'para otra página (aud)' => $googleToken(['aud' => '999-otra.apps.googleusercontent.com']),
+    'vencido' => $googleToken(['exp' => time() - 3600, 'iat' => time() - 7200]),
+    'de otro emisor' => $googleToken(['iss' => 'https://evil.example.com']),
+    'con correo sin confirmar' => $googleToken(['email_verified' => false]),
+    'sin correo' => $googleToken(['email' => null]),
+    'con clave desconocida' => $googleToken([], ['kid' => 'otra-clave']),
+    'con algoritmo cambiado' => $googleToken([], ['alg' => 'HS256']),
+    'con el contenido alterado' => (function () use ($googleToken, $b64u) {
+        [$h, , $sig] = explode('.', $googleToken());
+        return "$h." . $b64u(json_encode(['iss' => 'https://accounts.google.com', 'aud' => CLIENT_ID, 'sub' => '1', 'email' => 'x@gmail.com',
+            'email_verified' => true, 'iat' => time(), 'exp' => time() + 3600])) . ".$sig";
+    })(),
+];
+foreach ($bad as $label => $token) {
+    check("rechaza un comprobante $label", (new Client($base))->post('google', ['credential' => $token])[0] === 401);
+}
+$gabi = new Client($base);
+[$code, $body] = $gabi->post('google', ['credential' => $googleToken()]);
+$gabi->csrf = $body['csrf'] ?? $gabi->csrf;
+$gabiId = $body['user']['id'] ?? '';
+check('con Google se crea la cuenta sola', $code === 200 && $body['user']['name'] === 'Gabriela Gómez'
+    && $body['user']['email'] === 'gabi.gomez@gmail.com' && $body['user']['google'] === true, $body);
+[$code, $body] = (new Client($base))->post('google', ['credential' => $googleToken(['name' => 'Otro Nombre'])]);
+check('la segunda vez entra a la misma cuenta', $code === 200 && $body['user']['id'] === $gabiId && $body['user']['name'] === 'Gabriela Gómez', $body);
+$users = $admin->get('admin_users')[1]['items'];
+check('administración ve que la cuenta es de Google', $find($users, 'id', $gabiId)['google'] === 1 && $find($users, 'email', 'juan@example.com')['google'] === 0);
+[$code, $body] = (new Client($base))->post('google', ['credential' => $googleToken(['sub' => '555000111', 'email' => 'otra@example.com', 'name' => 'Ana G'])]);
+check('si ya tenía cuenta con ese correo, se une a esa cuenta', $code === 200 && $body['user']['id'] === $ana['id'] && $body['user']['name'] === 'Ana', $body);
+[$code, $body] = (new Client($base))->post('login', ['email' => 'otra@example.com', 'password' => 'una-clave-de-prueba']);
+check('después entra con Google y la contraseña vieja deja de servir', $code === 401 && str_contains($body['error'], 'Continuar con Google'), $body);
+check('otra cuenta de Google con el mismo correo no entra', (new Client($base))->post('google', ['credential' => $googleToken(['sub' => '777', 'email' => 'otra@example.com'])])[0] === 409);
+$admin->post('admin_user', ['id' => $gabiId, 'action' => 'block', 'days' => 7, 'reason' => 'conducta']);
+[$code, $body] = (new Client($base))->post('google', ['credential' => $googleToken()]);
+check('suspendida, tampoco entra con Google', $code === 403 && str_contains($body['error'], 'Motivo: Tuvo una conducta'), $body);
+$admin->post('admin_user', ['id' => $gabiId, 'action' => 'unblock']);
+[, $body] = $gabi->post('google', ['credential' => $googleToken()]);
+$gabi->csrf = $body['csrf'] ?? $gabi->csrf;
 
-$driver->upload('verify_request', ['consent' => '1'], $three);
-$pending = $find($admin->get('admin_verifications')[1]['items'], 'email', 'juan@example.com');
-$admin->post('admin_verification', ['id' => $pending['id'], 'action' => 'approve']);
+echo "Calificaciones\n";
+$profileOf = fn(Client $c, string $id) => $c->get('profile', "&id=$id")[1];
+check('calificar pide cuenta', $anon->post('rate', ['user' => $juan['id'], 'stars' => 5])[0] === 401);
+check('no te podés calificar a vos mismo', $driver->post('rate', ['user' => $juan['id'], 'stars' => 5])[0] === 400);
+foreach (['0' => 0, '6' => 6, 'texto' => '5', 'con decimales' => 4.5, 'vacío' => null] as $label => $stars) {
+    check("rechaza estrellas: $label", $gabi->post('rate', ['user' => $juan['id'], 'stars' => $stars])[0] === 400);
+}
+check('rechaza comentarios muy largos', $gabi->post('rate', ['user' => $juan['id'], 'stars' => 5, 'comment' => str_repeat('a', 301)])[0] === 400);
+check('no se califica a quien no existe', $gabi->post('rate', ['user' => 'nadie', 'stars' => 5])[0] === 404);
+check('calificar con estrellas y comentario', $gabi->post('rate', ['user' => $juan['id'], 'stars' => 5, 'comment' => 'Muy puntual.'])[0] === 200);
+check('otra persona califica', $other->post('rate', ['user' => $juan['id'], 'stars' => 3])[0] === 200);
+check('calificar de nuevo reemplaza la anterior', $gabi->post('rate', ['user' => $juan['id'], 'stars' => 4, 'comment' => 'Puntual, buena charla.'])[0] === 200);
+$profile = $profileOf($gabi, $juan['id']);
+check('el perfil muestra el promedio y la cantidad', $profile['profile']['rating'] === 3.5 && $profile['profile']['ratings'] === 2, $profile['profile']);
+$review = $find($profile['reviews'], 'rater_name', 'Gabriela Gómez');
+check('el perfil lista las opiniones con nombre, estrellas y comentario', count($profile['reviews']) === 2
+    && $review['comment'] === 'Puntual, buena charla.' && $review['stars'] === 4 && $review['rater_id'] === $gabiId, $profile['reviews']);
+check('cada uno ve su propia calificación', $profile['mine'] === ['stars' => 4, 'comment' => 'Puntual, buena charla.'] && $profileOf($anon, $juan['id'])['mine'] === null, $profile['mine']);
+check('el perfil no muestra correos', !str_contains(json_encode($profile), '@'), $profile);
 $listing = $anon->get('trips')[1]['items'];
-$juanTrips = array_filter($listing, fn($t) => $t['driver_id'] === $juan['id']);
-$othersVerified = array_filter($listing, fn($t) => $t['driver_id'] !== $juan['id'] && $t['driver_verified']);
-check('los viajes de un conductor verificado muestran la insignia (y solo los suyos)', $juanTrips && !in_array(false, array_column($juanTrips, 'driver_verified'), true) && !$othersVerified, array_values($juanTrips));
+$juanTrip = $find($listing, 'driver_id', $juan['id']);
+$othersRated = array_filter($listing, fn($t) => $t['driver_id'] !== $juan['id'] && $t['driver_ratings'] > 0);
+check('los viajes muestran las estrellas del conductor (y solo las suyas)', $juanTrip['driver_rating'] === 3.5 && $juanTrip['driver_ratings'] === 2 && !$othersRated, $juanTrip);
+$admin->post('admin_user', ['id' => $ana['id'], 'action' => 'block', 'days' => 1, 'reason' => 'otro']);
+check('las calificaciones de una cuenta suspendida no cuentan', $profileOf($anon, $juan['id'])['profile']['ratings'] === 1);
+$admin->post('admin_user', ['id' => $ana['id'], 'action' => 'unblock']);
+check('al levantar la suspensión vuelven a contar', $profileOf($anon, $juan['id'])['profile']['ratings'] === 2);
+$code = $other->post('rate_delete', ['user' => $juan['id']])[0];
+$after = $profileOf($anon, $juan['id'])['profile'];
+check('borrar la propia calificación', $code === 200 && $after['rating'] == 4 && $after['ratings'] === 1, $after);
+check('los usuarios comunes no ven todas las calificaciones', $gabi->get('admin_ratings')[0] === 403);
+$rating = $find($admin->get('admin_ratings')[1]['items'], 'rater_id', $gabiId);
+check('administración ve quién calificó a quién', $rating['rated_id'] === $juan['id'] && $rating['rater_email'] === 'gabi.gomez@gmail.com' && $rating['stars'] === 4, $rating);
+check('administración borra una calificación', $admin->post('admin_rating', ['id' => $rating['id'], 'action' => 'delete'])[0] === 200
+    && $admin->post('admin_rating', ['id' => $rating['id'], 'action' => 'delete'])[0] === 404);
+$profile = $profileOf($anon, $juan['id']);
+check('sin calificaciones el promedio queda vacío', $profile['profile']['rating'] === null && $profile['profile']['ratings'] === 0 && $profile['reviews'] === [], $profile);
+check('administración ve el promedio de cada usuario', array_key_exists('user_rating', $find($admin->get('admin_users')[1]['items'], 'id', $juan['id'])));
 [$code, $body] = $driver->post('trip_create', [...$trip, 'driver' => 'Otro Nombre']);
-$newTrip = $find($anon->get('trips')[1]['items'], 'id', $body['id'] ?? '');
-check('verificado, el viaje sale con el nombre de la cuenta', $code === 201 && $newTrip['driver'] === 'Juan', $newTrip);
-check('administración puede quitar la verificación', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'unverify'])[0] === 200
-    && $driver->get('session')[1]['user']['verified'] === false
-    && !$find($anon->get('trips')[1]['items'], 'id', $newTrip['id'])['driver_verified']);
-$other->upload('verify_request', ['consent' => '1'], $three);
-check('cancelar una solicitud borra las fotos', count($stored()) === 3 && $other->post('verify_cancel', [])[0] === 200 && $stored() === []
-    && $other->get('verification')[1]['request']['status'] === 'cancelled');
+check('el viaje sale con el nombre de la cuenta', $code === 201 && $find($anon->get('trips')[1]['items'], 'id', $body['id'] ?? '')['driver'] === 'Juan');
+$admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block', 'days' => 7, 'reason' => 'otro']);
+check('no se califica a una cuenta suspendida', $gabi->post('rate', ['user' => $juan['id'], 'stars' => 1])[0] === 404
+    && $anon->get('profile', '&id=' . $juan['id'])[0] === 404);
+$admin->post('admin_user', ['id' => $juan['id'], 'action' => 'unblock']);
+[, $body] = $driver->post('login', ['email' => 'juan@example.com', 'password' => 'una-clave-de-prueba']);
+$driver->csrf = $body['csrf'] ?? $driver->csrf;
 
 [$code, $body] = $driver->post('logout', []);
 $driver->csrf = $body['csrf'];
