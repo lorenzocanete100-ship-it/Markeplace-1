@@ -7,8 +7,8 @@
 <meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
 <meta name="theme-color" content="#17409a">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/styles.css?v=9">
-<script src="assets/app.js?v=9" defer></script>
+<link rel="stylesheet" href="assets/styles.css?v=10">
+<script src="assets/app.js?v=10" defer></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true">
@@ -214,9 +214,21 @@
     <div class="wrap narrow">
       <h1 id="t-perfil">Mi perfil</h1>
       <div class="card profile">
-        <p class="profile-name"><strong id="me-name"></strong>
-          <span class="badge off" id="me-google" hidden>Cuenta de Google</span></p>
-        <p class="muted" id="me-meta"></p>
+        <div class="photo-row">
+          <span id="me-photo"></span>
+          <div class="photo-text">
+            <p class="profile-name"><strong id="me-name"></strong>
+              <span class="badge off" id="me-google" hidden>Cuenta de Google</span></p>
+            <p class="muted" id="me-meta"></p>
+          </div>
+        </div>
+        <div class="photo-actions">
+          <label class="btn btn-sm btn-ghost file-btn"><span id="photo-label">Subir foto</span>
+            <input type="file" id="photo-input" class="visually-hidden" accept="image/jpeg,image/png,image/webp"></label>
+          <button type="button" class="btn btn-sm btn-ghost" id="photo-google" hidden>Usar mi foto de Google</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="photo-delete" hidden>Quitar foto</button>
+        </div>
+        <p class="muted small">Tu foto se ve en tus viajes, en tu perfil y en las opiniones que dejes.</p>
         <button type="button" class="btn btn-sm btn-ghost" id="logout">Cerrar sesión</button>
       </div>
 
@@ -234,8 +246,13 @@
   <section class="view" id="view-perfil-publico" aria-labelledby="pp-name" hidden>
     <div class="wrap narrow">
       <div class="card profile public">
-        <p class="eyebrow-ink">Perfil en Asiento Vacío</p>
-        <h1 id="pp-name"></h1>
+        <div class="photo-row">
+          <span id="pp-photo"></span>
+          <div class="photo-text">
+            <p class="eyebrow-ink">Perfil en Asiento Vacío</p>
+            <h1 id="pp-name"></h1>
+          </div>
+        </div>
         <p class="rating-summary" id="pp-rating"></p>
         <p class="muted" id="pp-meta"></p>
       </div>
@@ -321,7 +338,7 @@
     <p class="notes"></p>
     <p class="share"><svg class="icon"><use href="#i-fuel"/></svg>Sin tarifa · Se comparten combustible y alguna comida</p>
     <div class="contact">
-      <p class="driver">Conductor: <a class="driver-link"><strong></strong></a> <span class="rating"></span></p>
+      <p class="driver"><span class="avatar-slot"></span>Conductor: <a class="driver-link"><strong></strong></a> <span class="rating"></span></p>
       <a class="phone"><svg class="icon"><use href="#i-phone"/></svg><span></span></a>
       <div class="actions">
         <a class="btn btn-call"><svg class="icon"><use href="#i-phone"/></svg>Llamar</a>

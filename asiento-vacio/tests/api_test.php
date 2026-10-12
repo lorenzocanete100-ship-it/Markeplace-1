@@ -19,10 +19,18 @@ $rsa = openssl_pkey_get_details($googleKey)['rsa'];
 $certs = "$data-certs.json";
 file_put_contents($certs, json_encode(['keys' => [['kty' => 'RSA', 'kid' => 'clave-prueba', 'alg' => 'RS256', 'use' => 'sig', 'n' => $b64u($rsa['n']), 'e' => $b64u($rsa['e'])]]]));
 const CLIENT_ID = '1234567890-pruebaasiento.apps.googleusercontent.com';
+// Otro servidor local hace de "fotos de Google" para probar "Usar mi foto de Google".
+$picturePort = $port === 40000 ? 39999 : $port + 1;
+$pictures = "$data-fotos-google";
+mkdir($pictures);
+$googlePhoto = imagecreatetruecolor(600, 400);
+imagefill($googlePhoto, 0, 0, imagecolorallocate($googlePhoto, 200, 40, 40));
+imagejpeg($googlePhoto, "$pictures/perfil=s400-c");
+define('PICTURE_URL', "http://127.0.0.1:$picturePort/perfil=s96-c");
 $googleToken = function (array $claims = [], array $header = [], $key = null) use ($googleKey, $b64u): string {
     $claims = array_filter([
         'iss' => 'https://accounts.google.com', 'aud' => CLIENT_ID, 'sub' => '1098765432101234567',
-        'email' => 'Gabi.Gomez@gmail.com', 'email_verified' => true, 'name' => 'Gabriela Gómez',
+        'email' => 'Gabi.Gomez@gmail.com', 'email_verified' => true, 'name' => 'Gabriela Gómez', 'picture' => PICTURE_URL,
         'iat' => time(), 'exp' => time() + 3600, ...$claims,
     ], fn($v) => $v !== null);
     $head = $b64u(json_encode(['alg' => 'RS256', 'kid' => 'clave-prueba', 'typ' => 'JWT', ...$header]));
@@ -32,7 +40,7 @@ $googleToken = function (array $claims = [], array $header = [], $key = null) us
 };
 
 $env = [...getenv(), 'ASIENTO_DATA_DIR' => $data, 'ASIENTO_ADMIN_CODE_SHA256' => hash('sha256', 'TESTCODE1234'),
-    'ASIENTO_GOOGLE_CERTS_URL' => $certs];
+    'ASIENTO_GOOGLE_CERTS_URL' => $certs, 'ASIENTO_GOOGLE_PICTURE_PATTERN' => "#^http://127\\.0\\.0\\.1:$picturePort/#"];
 
 // Base con el formato anterior (sin administración), como la que ya puede haber en el hosting,
 // con restos de la verificación con DNI que se quitó.
@@ -47,9 +55,11 @@ $legacy->exec("INSERT INTO verifications VALUES ('v1', 'cuenta-vieja', 'pending'
 $legacy = null;
 
 $server = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", '-t', $root], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, $env);
-register_shutdown_function(function () use ($server, $data, $certs) {
+$pictureServer = proc_open([PHP_BINARY, '-S', "127.0.0.1:$picturePort", '-t', $pictures], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, $env);
+register_shutdown_function(function () use ($server, $pictureServer, $data, $certs, $pictures) {
     proc_terminate($server);
-    exec('rm -rf ' . escapeshellarg($data));
+    proc_terminate($pictureServer);
+    exec('rm -rf ' . escapeshellarg($data) . ' ' . escapeshellarg($pictures));
     @unlink($certs);
 });
 for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
@@ -396,6 +406,68 @@ check('no se califica a una cuenta suspendida', $gabi->post('rate', ['user' => $
 $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'unblock']);
 [, $body] = $driver->post('login', ['email' => 'juan@example.com', 'password' => 'una-clave-de-prueba']);
 $driver->csrf = $body['csrf'] ?? $driver->csrf;
+
+echo "Fotos de perfil\n";
+$png = tempnam(sys_get_temp_dir(), 'foto') . '.png';
+$image = imagecreatetruecolor(900, 600);
+imagesavealpha($image, true);
+imagefill($image, 0, 0, imagecolorallocatealpha($image, 0, 0, 0, 127));
+imagefilledellipse($image, 450, 300, 300, 300, imagecolorallocate($image, 20, 80, 200));
+imagepng($image, $png);
+$notPhoto = tempnam(sys_get_temp_dir(), 'falsa');
+file_put_contents($notPhoto, 'esto no es una foto');
+$storedPhotos = fn() => array_values(array_diff(scandir("$data/fotos") ?: [], ['.', '..']));
+$headersOf = function (string $path) use ($base): string {
+    $ch = curl_init("$base/$path");
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HEADER => true, CURLOPT_NOBODY => false]);
+    $response = (string)curl_exec($ch);
+    return substr($response, 0, curl_getinfo($ch, CURLINFO_HEADER_SIZE));
+};
+check('subir foto pide cuenta', $anon->upload('photo_upload', [], ['photo' => $png])[0] === 401);
+check('rechaza archivos que no son fotos', $gabi->upload('photo_upload', [], ['photo' => $notPhoto])[0] === 400);
+check('rechaza el pedido sin foto', $gabi->upload('photo_upload', [], [])[0] === 400);
+[$code, $body] = $gabi->upload('photo_upload', [], ['photo' => $png]);
+$gabiPhoto = $body['user']['photo'] ?? '';
+check('subir una foto', $code === 200 && preg_match('#^api\.php\?a=photo&f=[a-f0-9]{32}\.jpg$#', $gabiPhoto), $body);
+[$code, $jpeg, $type] = $anon->bytes($gabiPhoto);
+$size = @getimagesizefromstring((string)$jpeg);
+check('la foto se ve sin cuenta, cuadrada y achicada', $code === 200 && $type === 'image/jpeg' && $size[0] === 320 && $size[1] === 320, [$code, $type, $size]);
+$corner = imagecolorat(imagecreatefromstring($jpeg), 2, 2);
+check('el fondo transparente queda blanco', (($corner >> 16) & 0xFF) > 240 && ($corner & 0xFF) > 240, dechex($corner));
+$headers = $headersOf($gabiPhoto);
+check('la foto no abre sesión y se guarda en el navegador', !stripos($headers, 'set-cookie') && stripos($headers, 'max-age=31536000'), $headers);
+check('las fotos quedan fuera de la carpeta pública', count($storedPhotos()) === 1 && !is_dir("$root/fotos"), $storedPhotos());
+check('no se puede pedir cualquier archivo', $anon->bytes('api.php?a=photo&f=../viajes.sqlite')[0] === 404
+    && $anon->bytes('api.php?a=photo&f=' . str_repeat('0', 32) . '.jpg')[0] === 404);
+check('la sesión trae la foto', $gabi->get('session')[1]['user']['photo'] === $gabiPhoto);
+$gabi->post('rate', ['user' => $juan['id'], 'stars' => 5]);
+$review = $find($profileOf($anon, $juan['id'])['reviews'], 'rater_id', $gabiId);
+check('las opiniones muestran la foto de quien opina', ($review['rater_photo'] ?? null) === $gabiPhoto, $review);
+check('el perfil público muestra la foto', $profileOf($anon, $gabiId)['profile']['photo'] === $gabiPhoto);
+[, $body] = $driver->upload('photo_upload', [], ['photo' => $png]);
+$juanPhoto = $body['user']['photo'];
+$juanTrip = $find($anon->get('trips')[1]['items'], 'driver_id', $juan['id']);
+check('los viajes muestran la foto del conductor', $juanTrip['driver_photo'] === $juanPhoto && $juanPhoto !== $gabiPhoto, $juanTrip);
+[, $body] = $driver->upload('photo_upload', [], ['photo' => $png]);
+check('cambiar la foto borra la anterior', $body['user']['photo'] !== $juanPhoto && $anon->bytes($juanPhoto)[0] === 404 && count($storedPhotos()) === 2, $storedPhotos());
+$juanPhoto = $body['user']['photo'];
+$admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block', 'days' => 1, 'reason' => 'otro']);
+check('la foto de una cuenta suspendida no se muestra', $anon->bytes($juanPhoto)[0] === 404);
+$admin->post('admin_user', ['id' => $juan['id'], 'action' => 'unblock']);
+[, $body] = $driver->post('login', ['email' => 'juan@example.com', 'password' => 'una-clave-de-prueba']);
+$driver->csrf = $body['csrf'] ?? $driver->csrf;
+check('administración ve la foto de cada usuario', $find($admin->get('admin_users')[1]['items'], 'id', $juan['id'])['photo'] === $juanPhoto);
+check('administración quita una foto', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'remove_photo'])[0] === 200
+    && $driver->get('session')[1]['user']['photo'] === null && $anon->bytes($juanPhoto)[0] === 404 && count($storedPhotos()) === 1);
+check('quitar la propia foto', $gabi->post('photo_delete', [])[0] === 200 && $gabi->get('session')[1]['user']['photo'] === null && $storedPhotos() === []);
+check('la cuenta de Google tiene foto de Google para usar', $gabi->get('session')[1]['user']['googlePicture'] === true
+    && $driver->get('session')[1]['user']['googlePicture'] === false);
+[$code, $body] = $gabi->post('photo_google', []);
+$size = @getimagesizefromstring((string)$anon->bytes($body['user']['photo'] ?? '')[1]);
+check('usar la foto de Google (pide la grande y la recorta)', $code === 200 && $size[0] === 320 && $size[1] === 320, [$code, $body, $size]);
+check('sin foto de Google no se puede usar ese botón', $driver->post('photo_google', [])[0] === 404);
+[, $body] = (new Client($base))->post('google', ['credential' => $googleToken(['sub' => '424242', 'email' => 'otro.google@gmail.com', 'picture' => 'https://evil.example.com/x.jpg'])]);
+check('no se acepta una foto de Google de otro sitio', ($body['user']['googlePicture'] ?? null) === false, $body);
 
 [$code, $body] = $driver->post('logout', []);
 $driver->csrf = $body['csrf'];

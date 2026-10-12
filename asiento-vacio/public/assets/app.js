@@ -9,13 +9,18 @@ const REASONS = { precio: 'Cobra un precio o parece un negocio', datos: 'Teléfo
 const state = { csrf: '', today: '', user: null, googleClientId: '', trips: [], mine: [], tripsLoaded: false, next: 'viajes' };
 const $ = (selector, root = document) => root.querySelector(selector);
 
-async function api(action, { body, query = '', retried = false } = {}) {
+async function api(action, { body, form, query = '', retried = false } = {}) {
   const options = { headers: { Accept: 'application/json' }, credentials: 'same-origin' };
-  if (body) {
+  if (body || form) {
     options.method = 'POST';
-    options.headers['Content-Type'] = 'application/json';
     options.headers['X-CSRF-Token'] = state.csrf;
-    options.body = JSON.stringify(body);
+    if (form) {
+      // Con una foto: el navegador arma el envío por partes solo.
+      options.body = form;
+    } else {
+      options.headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify(body);
+    }
   }
   let response;
   try {
@@ -25,9 +30,9 @@ async function api(action, { body, query = '', retried = false } = {}) {
   }
   const data = await response.json().catch(() => ({}));
   // Si la sesión venció, pedimos un token nuevo y reintentamos una sola vez.
-  if (response.status === 403 && data.csrf && body && !retried) {
+  if (response.status === 403 && data.csrf && (body || form) && !retried) {
     await loadSession();
-    return api(action, { body, query, retried: true });
+    return api(action, { body, form, query, retried: true });
   }
   if (!response.ok) throw new Error(data.error || 'No se pudo completar la operación. Intentá nuevamente.');
   return data;
@@ -119,6 +124,7 @@ function tripCard(trip, { manage = false } = {}) {
   else $('.notes', card).hidden = true;
 
   $('.driver strong', card).textContent = trip.driver;
+  $('.driver .avatar-slot', card).replaceWith(avatar(trip.driver_photo, trip.driver, 'sm'));
   $('.driver-link', card).href = `#perfil-${trip.driver_id}`;
   $('.driver .rating', card).replaceWith(ratingBadge(trip.driver_rating, trip.driver_ratings));
   const tel = `tel:+${trip.phone_digits}`;
@@ -551,12 +557,14 @@ function renderUsers() {
         badge(Number(u.trips_total) > 0 ? 'Conductor' : 'Acompañante', 'off'),
         isAdmin && badge('Administración'), Number(u.google) === 1 && badge('Google', 'off'),
         blocked && suspendedBadge(u), self && badge('Vos', 'off')),
-      el('p', { className: 'item-title', textContent: u.name }),
+      el('p', { className: 'item-title' }, avatar(u.photo, u.name, 'xs'), u.name),
       el('p', { className: 'item-meta' }, `${u.email} · desde el ${when(u.created)} · ${trips === 1 ? '1 viaje' : `${trips} viajes`} · `,
         ratingBadge(u.user_rating === null ? null : Number(u.user_rating), Number(u.user_ratings))),
       blocked && u.blocked_reason && el('p', { className: 'item-reason', textContent: `Motivo: ${u.blocked_reason}` }),
       el('div', { className: 'item-actions' },
         button('Ver viajes', () => showTripsOf(u.email)),
+        u.photo && button('Quitar foto', () => adminAction('admin_user', { id: u.id, action: 'remove_photo' },
+          { question: `¿Quitar la foto de perfil de ${u.name}?`, ok: 'Quitar foto', done: 'Foto quitada.' })),
         !self && !isAdmin && (blocked
           ? button('Levantar suspensión', () => adminAction('admin_user', { id: u.id, action: 'unblock' }, { done: 'Suspensión levantada.' }))
           : button('Suspender', () => openSuspend(u), 'btn-danger')),
@@ -670,17 +678,83 @@ function ratingSummary(target, average, count, emptyText) {
     : [emptyText]));
 }
 
+// Foto de perfil, o un círculo con la inicial si la persona no subió una.
+function avatar(url, name, size = '') {
+  const className = `avatar ${size}`.trim();
+  if (url) return el('img', { className, src: url, alt: '', loading: 'lazy', decoding: 'async' });
+  const node = el('span', { className: `${className} initials`, textContent: (name || '?').trim().charAt(0).toUpperCase() });
+  node.setAttribute('aria-hidden', 'true');
+  return node;
+}
+
 function reviewItem(review) {
   return el('article', { className: 'review' },
     el('div', { className: 'review-head' },
-      el('a', { href: `#perfil-${review.rater_id}`, textContent: review.rater_name }),
+      el('span', { className: 'who' }, avatar(review.rater_photo, review.rater_name, 'xs'),
+        el('a', { href: `#perfil-${review.rater_id}`, textContent: review.rater_name })),
       el('span', { className: 'review-date', textContent: when(review.updated) })),
     starsText(Number(review.stars)),
     review.comment && el('p', { textContent: review.comment }));
 }
 
+function renderMyPhoto() {
+  const me = state.user;
+  $('#me-photo').replaceChildren(avatar(me.photo, me.name, 'lg'));
+  $('#photo-label').textContent = me.photo ? 'Cambiar foto' : 'Subir foto';
+  $('#photo-google').hidden = !me.googlePicture;
+  $('#photo-delete').hidden = !me.photo;
+}
+
+// Achica la foto en el teléfono antes de mandarla: sube más rápido y gasta menos datos.
+async function shrinkPhoto(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
+    const canvas = Object.assign(document.createElement('canvas'), {
+      width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale),
+    });
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    return blob || file;
+  } catch {
+    return file;
+  }
+}
+
+async function photoAction(action, form, done) {
+  const buttons = document.querySelectorAll('.photo-actions button, .photo-actions input');
+  buttons.forEach((node) => { node.disabled = true; });
+  try {
+    const result = await api(action, form ? { form } : { body: {} });
+    state.user = result.user;
+    state.tripsLoaded = false;
+    renderMyPhoto();
+    toast(done);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    buttons.forEach((node) => { node.disabled = false; });
+  }
+}
+
+async function uploadPhoto(event) {
+  const input = event.currentTarget;
+  const [file] = input.files;
+  input.value = '';
+  if (!file) return;
+  const form = new FormData();
+  form.append('photo', await shrinkPhoto(file), 'foto.jpg');
+  await photoAction('photo_upload', form, 'Listo: tu foto quedó guardada.');
+}
+
+async function deletePhoto() {
+  if (!(await ask('¿Quitar tu foto de perfil?', 'Quitar foto'))) return;
+  await photoAction('photo_delete', null, 'Listo: quitaste tu foto.');
+}
+
 async function loadProfile() {
   const me = state.user;
+  renderMyPhoto();
   $('#me-name').textContent = me.name;
   $('#me-google').hidden = !me.google;
   $('#me-meta').textContent = `${me.email} · ${memberSince(me.created)}`;
@@ -692,6 +766,9 @@ async function loadProfile() {
     toast(error.message);
     return;
   }
+  // La foto puede haber cambiado desde otro lado (por ejemplo, la quitó la administración).
+  state.user.photo = data.profile.photo;
+  renderMyPhoto();
   ratingSummary($('#me-rating'), data.profile.rating, data.profile.ratings, 'Todavía no tenés calificaciones.');
   $('#me-reviews').replaceChildren(...data.reviews.map(reviewItem));
 }
@@ -743,7 +820,7 @@ async function loadPublicProfile(id) {
     data = await api('profile', { query: `&id=${encodeURIComponent(id)}` });
   } catch (error) {
     $('#pp-name').textContent = error.message;
-    for (const node of ['#pp-rating', '#pp-reviews', '#pp-trips']) $(node).replaceChildren();
+    for (const node of ['#pp-photo', '#pp-rating', '#pp-reviews', '#pp-trips']) $(node).replaceChildren();
     $('#pp-meta').textContent = '';
     form.hidden = true;
     $('#rate-login').hidden = true;
@@ -751,6 +828,7 @@ async function loadPublicProfile(id) {
     return;
   }
   const { profile } = data;
+  $('#pp-photo').replaceChildren(avatar(profile.photo, profile.name, 'lg'));
   $('#pp-name').textContent = profile.name;
   ratingSummary($('#pp-rating'), profile.rating, profile.ratings, 'Todavía no tiene calificaciones.');
   $('#pp-meta').textContent = memberSince(profile.created);
@@ -830,6 +908,9 @@ async function init() {
   $('#filter-users').addEventListener('input', renderUsers);
   $('#filter-role').addEventListener('change', renderUsers);
   $('#copy-link').addEventListener('click', copyProfileLink);
+  $('#photo-input').addEventListener('change', uploadPhoto);
+  $('#photo-google').addEventListener('click', () => photoAction('photo_google', null, 'Listo: ahora usás tu foto de Google.'));
+  $('#photo-delete').addEventListener('click', deletePhoto);
   $('#rate-form').addEventListener('submit', sendRating);
   $('#rate-form').addEventListener('change', (event) => showError(event.currentTarget, ''));
   $('#rate-delete').addEventListener('click', deleteRating);

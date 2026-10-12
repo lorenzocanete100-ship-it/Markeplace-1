@@ -19,6 +19,8 @@ return [
     // Claves públicas de Google para comprobar el ingreso con Google. El ID de cliente
     // se carga desde Administrar → Ajustes, no hace falta tocar este archivo.
     'google_certs_url' => getenv('ASIENTO_GOOGLE_CERTS_URL') ?: 'https://www.googleapis.com/oauth2/v3/certs',
+    // De dónde se acepta traer la foto de una cuenta de Google ("Usar mi foto de Google").
+    'google_picture_pattern' => getenv('ASIENTO_GOOGLE_PICTURE_PATTERN') ?: '#^https://lh[0-9]\.googleusercontent\.com/#',
 
     'timezone' => 'America/Argentina/Buenos_Aires',
 ];

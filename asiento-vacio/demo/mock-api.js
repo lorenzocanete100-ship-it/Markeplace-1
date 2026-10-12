@@ -44,11 +44,46 @@
   const multiline = (v) => (typeof v === 'string' ? v.replace(/[ \t]+/g, ' ').trim() : '');
   const between = (v, min, max) => [...v].length >= min && [...v].length <= max;
 
+  // Fotos de ejemplo dibujadas acá mismo (una silueta sobre un fondo de color).
+  function drawnPhoto(background, skin, shirt) {
+    const canvas = Object.assign(document.createElement('canvas'), { width: 160, height: 160 });
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, 160, 160);
+    ctx.fillStyle = shirt;
+    ctx.beginPath();
+    ctx.ellipse(80, 168, 62, 48, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.arc(80, 66, 32, 0, Math.PI * 2);
+    ctx.fill();
+    return canvas.toDataURL('image/jpeg', 0.85);
+  }
+
+  // Recorta la foto elegida en un cuadrado chico, como hace el servidor de verdad.
+  async function squarePhoto(file) {
+    if (!(file instanceof Blob) || !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 8 * 1024 * 1024) return null;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const side = Math.min(bitmap.width, bitmap.height);
+      const canvas = Object.assign(document.createElement('canvas'), { width: 160, height: 160 });
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 160, 160);
+      ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, 160, 160);
+      return canvas.toDataURL('image/jpeg', 0.85);
+    } catch {
+      return null;
+    }
+  }
+
   function seed() {
     const day = today();
     const ts = now();
     const user = (id, name, email, ago) => ({
-      id, email, name, password: '', google_sub: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: ts - ago * 86400,
+      id, email, name, password: '', google_sub: '', google_picture: '', photo: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: ts - ago * 86400,
     });
     const trip = (owner, origin, destination, inDays, hour, seats, driver, phone, vehicle, notes) => ({
       id: newId(), owner, origin, destination, day: addDays(day, inDays), hour, seats, driver, phone,
@@ -60,10 +95,10 @@
     return {
       settings: { googleClientId: '1234567890-pruebaasiento.apps.googleusercontent.com' },
       users: [
-        user('ej-marta', 'Marta', 'marta@ejemplo.com', 20),
+        { ...user('ej-marta', 'Marta', 'marta@ejemplo.com', 20), photo: drawnPhoto('#cfe0fb', '#e8b48f', '#1f55c7') },
         user('ej-diego', 'Diego', 'diego@ejemplo.com', 9),
         user('ej-rosa', 'Rosa', 'rosa@ejemplo.com', 3),
-        user('ej-lucia', 'Lucía', 'lucia@ejemplo.com', 15),
+        { ...user('ej-lucia', 'Lucía', 'lucia@ejemplo.com', 15), photo: drawnPhoto('#fde7c2', '#c98e6b', '#b42318') },
         user('ej-pablo', 'Pablo', 'pablo@ejemplo.com', 12),
       ],
       trips: [
@@ -123,6 +158,7 @@
   const byDayHour = (a, b) => (a.day + a.hour).localeCompare(b.day + b.hour);
   const publicUser = (u) => (u ? {
     id: u.id, email: u.email, name: u.name, created: u.created, admin: u.is_admin === 1, google: Boolean(u.google_sub),
+    photo: u.photo || null, googlePicture: Boolean(u.google_picture),
   } : null);
   const suspended = (account) => fail(`Tu cuenta está suspendida${account.blocked_until ? untilText(account.blocked_until) : ''}.`
     + (account.blocked_reason ? ` Motivo: ${account.blocked_reason}` : ''), 403);
@@ -145,7 +181,8 @@
       const { owner, ...rest } = trip;
       const own = Boolean(user && owner === user.id);
       const list = ratingsOf(owner);
-      return { ...rest, driver_id: owner, driver_rating: average(list), driver_ratings: list.length, mine: own, canDelete: own || isAdmin };
+      return { ...rest, driver_id: owner, driver_photo: ownerOf(trip).photo || null, driver_rating: average(list), driver_ratings: list.length,
+        mine: own, canDelete: own || isAdmin };
     };
     const requireUser = () => user || fail('Iniciá sesión.', 401);
     const ownTrip = () => {
@@ -183,7 +220,7 @@
           const name = clean(input.name);
           if (!between(name, 2, 80)) fail('Ingresá tu nombre (2 a 80 caracteres).');
           if (account) fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
-          account = { id: newId(), email, name, password: await digest(password), google_sub: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
+          account = { id: newId(), email, name, password: await digest(password), google_sub: '', google_picture: '', photo: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
           db.users.push(account);
           return signIn(account);
         }
@@ -203,10 +240,11 @@
         if (account) {
           if (account.blocked === 1) suspended(account);
           if (!account.google_sub) Object.assign(account, { google_sub: sub, password: '' });
+          account.google_picture = 'prueba';
           return signIn(account);
         }
         account = { id: newId(), email: 'google.prueba@ejemplo.com', name: 'Cuenta de Google (prueba)', password: '', google_sub: sub,
-          is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
+          google_picture: 'prueba', photo: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
         db.users.push(account);
         return signIn(account);
       }
@@ -293,11 +331,12 @@
         const list = ratingsOf(profile.id);
         const reviews = [...list].sort((a, b) => b.updated - a.updated).slice(0, 50).map((r) => ({
           stars: r.stars, comment: r.comment, updated: r.updated, rater_id: r.rater, rater_name: userById(r.rater).name,
+          rater_photo: userById(r.rater).photo || null,
         }));
         const own = user ? db.ratings.find((r) => r.rater === user.id && r.rated === profile.id) : null;
         const trips = db.trips.filter((t) => t.owner === profile.id && t.status === 'active' && t.day >= today()).sort(byDayHour);
         return {
-          profile: { id: profile.id, name: profile.name, created: profile.created, rating: average(list), ratings: list.length },
+          profile: { id: profile.id, name: profile.name, created: profile.created, photo: profile.photo || null, rating: average(list), ratings: list.length },
           reviews,
           mine: own ? { stars: own.stars, comment: own.comment } : null,
           trips: trips.map(serialize),
@@ -319,6 +358,28 @@
           db.ratings.push({ id: newId(), rater: me.id, rated: target.id, stars: input.stars, comment, created: now(), updated: now() });
         }
         return { ok: true };
+      }
+
+      case 'photo_upload': {
+        const me = requireUser();
+        const photo = await squarePhoto(input.photo);
+        if (!photo) fail('Elegí una foto JPG, PNG o WebP de hasta 8 MB.');
+        me.photo = photo;
+        return { user: publicUser(me) };
+      }
+
+      case 'photo_google': {
+        const me = requireUser();
+        if (!me.google_picture) fail('Tu cuenta no tiene una foto de Google para usar.', 404);
+        // En la prueba no hay foto real de Google: se dibuja una de ejemplo.
+        me.photo = drawnPhoto('#d9f1e4', '#d9a37f', '#0b6e4f');
+        return { user: publicUser(me) };
+      }
+
+      case 'photo_delete': {
+        const me = requireUser();
+        me.photo = '';
+        return { user: publicUser(me) };
       }
 
       case 'rate_delete': {
@@ -395,7 +456,7 @@
               blocked_until: u.blocked_until || 0, blocked_reason: u.blocked_reason || '', google: u.google_sub ? 1 : 0,
               trips: db.trips.filter((t) => t.owner === u.id && t.status !== 'deleted').length,
               trips_total: db.trips.filter((t) => t.owner === u.id).length,
-              user_rating: average(list), user_ratings: list.length,
+              user_rating: average(list), user_ratings: list.length, photo: u.photo || null,
             };
           }),
         };
@@ -416,6 +477,10 @@
         if (!target) fail('Cuenta no encontrada.', 404);
         if (target.id === user.id && ['block', 'remove_admin'].includes(input.action)) fail('No podés hacerte eso a vos mismo.');
         if (input.action === 'block' && target.is_admin === 1) fail('Primero quitale la administración.');
+        if (input.action === 'remove_photo') {
+          target.photo = '';
+          return { ok: true };
+        }
         if (input.action === 'block') {
           const reason = SUSPEND_REASONS[input.reason];
           if (!SUSPEND_DAYS.includes(input.days) || !reason) fail('Elegí cuánto dura la suspensión y el motivo.');
@@ -447,10 +512,14 @@
     if (!url.startsWith('api.php')) return realFetch(resource, options);
     const params = new URL(url, 'https://prueba.local/').searchParams;
     let input = {};
-    try {
-      input = options.body ? JSON.parse(options.body) : {};
-    } catch {
-      input = {};
+    if (options.body instanceof FormData) {
+      input = Object.fromEntries(options.body.entries());
+    } else {
+      try {
+        input = options.body ? JSON.parse(options.body) : {};
+      } catch {
+        input = {};
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
     try {

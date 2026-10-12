@@ -367,3 +367,20 @@ legend { font-weight: 700; margin-bottom: 8px; padding: 0; }
 .help summary { cursor: pointer; font-weight: 600; color: var(--primary-text); }
 .help ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; }
 #settings-form h2, #settings-form p { margin: 0; }
+
+/* Fotos de perfil */
+.avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--primary-soft); }
+.avatar.initials { display: inline-grid; place-items: center; color: var(--primary-text); font-weight: 800; font-size: 1rem; }
+.avatar.xs { width: 28px; height: 28px; font-size: .8rem; }
+.avatar.sm { width: 34px; height: 34px; font-size: .9rem; }
+.avatar.lg { width: 88px; height: 88px; font-size: 2.2rem; }
+.photo-row { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.photo-text { display: grid; gap: 4px; min-width: 0; }
+.photo-text h1 { margin: 0; overflow-wrap: anywhere; }
+.photo-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.file-btn { cursor: pointer; }
+.file-btn:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.small { font-size: .85rem; }
+.review-head .who { display: inline-flex; align-items: center; gap: 8px; }
+.item-title .avatar { vertical-align: middle; margin-right: 6px; }
