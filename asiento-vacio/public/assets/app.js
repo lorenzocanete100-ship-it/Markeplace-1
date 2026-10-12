@@ -6,23 +6,20 @@ const VIEWS = ['viajes', 'publicar', 'mis-viajes', 'perfil', 'perfil-publico', '
 const PRIVATE_VIEWS = ['publicar', 'mis-viajes', 'perfil', 'admin'];
 const MIN_RATINGS = 3;        // opiniones que necesita un conductor para el filtro "4 estrellas o más"
 const NEW_ACCOUNT_DAYS = 7;   // en Calificaciones se marcan las hechas con cuentas más nuevas que esto
+// Qué hacía en el viaje la persona calificada.
+const ROLE_TEXT = { driver: 'como conductor', rider: 'como acompañante' };
 const REASONS = { precio: 'Cobra un precio o parece un negocio', datos: 'Teléfono o datos falsos', ofensivo: 'Ofensivo o peligroso', otro: 'Otro motivo' };
 
 const state = { csrf: '', today: '', user: null, googleClientId: '', trips: [], mine: [], tripsLoaded: false, next: 'viajes', returnTo: '' };
 const $ = (selector, root = document) => root.querySelector(selector);
 
-async function api(action, { body, form, query = '', retried = false } = {}) {
+async function api(action, { body, query = '', retried = false } = {}) {
   const options = { headers: { Accept: 'application/json' }, credentials: 'same-origin' };
-  if (body || form) {
+  if (body) {
     options.method = 'POST';
     options.headers['X-CSRF-Token'] = state.csrf;
-    if (form) {
-      // Con una foto: el navegador arma el envío por partes solo.
-      options.body = form;
-    } else {
-      options.headers['Content-Type'] = 'application/json';
-      options.body = JSON.stringify(body);
-    }
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
   }
   let response;
   try {
@@ -32,9 +29,9 @@ async function api(action, { body, form, query = '', retried = false } = {}) {
   }
   const data = await response.json().catch(() => ({}));
   // Si la sesión venció, pedimos un token nuevo y reintentamos una sola vez.
-  if (response.status === 403 && data.csrf && (body || form) && !retried) {
+  if (response.status === 403 && data.csrf && body && !retried) {
     await loadSession();
-    return api(action, { body, form, query, retried: true });
+    return api(action, { body, query, retried: true });
   }
   if (!response.ok) throw new Error(data.error || 'No se pudo completar la operación. Intentá nuevamente.');
   return data;
@@ -304,38 +301,16 @@ function updateAuthUI() {
   document.querySelectorAll('.only-admin').forEach((el) => { el.hidden = !state.user?.admin; });
 }
 
-function selectTab(name) {
-  for (const tab of ['login', 'register']) {
-    $(`#tab-${tab}`).setAttribute('aria-selected', String(tab === name));
-    $(`#${tab}`).hidden = tab !== name;
-  }
-}
-
-async function authenticate(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  if (!form.checkValidity()) {
-    form.reportValidity();
-    return;
-  }
-  const body = Object.fromEntries(new FormData(form));
-  await busy(form, async () => {
-    const result = await api(form.id, { body });
-    form.reset();
-    signedIn(result, form.id === 'register');
-  });
-}
-
-function signedIn(result, isNew) {
+function signedIn(result) {
   state.csrf = result.csrf;
   state.user = result.user;
   state.mine = [];
   updateAuthUI();
-  toast(isNew ? `¡Bienvenido/a, ${result.user.name}!` : `Hola, ${result.user.name}.`);
-  go(isNew && state.next === 'mis-viajes' ? 'perfil' : state.next);
+  toast(result.new ? `¡Bienvenido/a, ${result.user.name}!` : `Hola, ${result.user.name}.`);
+  go(result.new && state.next === 'mis-viajes' ? 'perfil' : state.next);
 }
 
-/* Ingreso con Google: el botón lo dibuja Google y el servidor comprueba el comprobante que entrega. */
+/* Ingreso con Google (el único): el botón lo dibuja Google y el servidor comprueba el comprobante que entrega. */
 let googleScript = null;
 function loadGoogleScript() {
   if (window.google?.accounts?.id) return Promise.resolve();
@@ -353,12 +328,16 @@ function loadGoogleScript() {
 
 async function renderGoogle() {
   const box = $('#google-box');
+  // Sin el ID de cliente nadie puede entrar: se muestra el formulario para que el dueño lo cargue.
+  $('#setup-form').hidden = Boolean(state.user || state.googleClientId);
+  $('#google-off').hidden = true;
   box.hidden = !state.googleClientId || Boolean(state.user);
   if (box.hidden) return;
   try {
     await loadGoogleScript();
   } catch {
     box.hidden = true;
+    $('#google-off').hidden = false;
     return;
   }
   if (state.googleReadyFor !== state.googleClientId) {
@@ -376,11 +355,29 @@ async function googleSignIn(response) {
   const error = $('#google-error');
   error.hidden = true;
   try {
-    signedIn(await api('google', { body: { credential: response.credential } }), false);
+    signedIn(await api('google', { body: { credential: response.credential } }));
   } catch (problem) {
     error.textContent = problem.message;
     error.hidden = false;
   }
+}
+
+async function setupGoogle(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!form.checkValidity()) {
+    showError(form, 'Completá el código y el ID de cliente.');
+    return;
+  }
+  await busy(form, async () => {
+    const result = await api('setup', { body: { code: form.code.value, googleClientId: form.googleClientId.value.trim() } });
+    state.googleClientId = result.googleClientId;
+    form.reset();
+    // Después de entrar, se sigue con la administración (se activa con el mismo código).
+    state.next = 'admin';
+    toast('Listo: ya se puede entrar con Google. Entrá con tu cuenta para activar la administración.');
+    renderGoogle();
+  });
 }
 
 async function logout() {
@@ -574,10 +571,13 @@ function renderUsers() {
     const isAdmin = Number(u.is_admin) === 1;
     const blocked = Number(u.blocked) === 1;
     const trips = Number(u.trips);
+    const google = Number(u.google) === 1;
+    const linkOk = Number(u.google_link_ok) === 1;
     return el('article', { className: 'item' },
       el('div', { className: 'badges' },
         badge(Number(u.trips_total) > 0 ? 'Conductor' : 'Acompañante', 'off'),
-        isAdmin && badge('Administración'), Number(u.google) === 1 && badge('Google', 'off'),
+        isAdmin && badge('Administración'), google ? badge('Google', 'off') : badge('Cuenta vieja, con contraseña', 'warn'),
+        !google && linkOk && badge('Puede pasar a Google'),
         blocked && suspendedBadge(u), self && badge('Vos', 'off')),
       el('p', { className: 'item-title' }, avatar(u.photo, u.name, 'xs'), u.name),
       el('p', { className: 'item-meta' }, `${u.email} · desde el ${when(u.created)} · ${trips === 1 ? '1 viaje' : `${trips} viajes`} · `,
@@ -587,6 +587,10 @@ function renderUsers() {
         button('Ver viajes', () => showTripsOf(u.email)),
         u.photo && button('Quitar foto', () => adminAction('admin_user', { id: u.id, action: 'remove_photo' },
           { question: `¿Quitar la foto de perfil de ${u.name}?`, ok: 'Quitar foto', done: 'Foto quitada.' })),
+        // Las cuentas de antes, con contraseña, pasan a Google al entrar; si el correo no es de Gmail, hace falta este permiso.
+        !google && !linkOk && button('Dejar entrar con Google', () => adminAction('admin_user', { id: u.id, action: 'allow_google' },
+          { question: `¿Dejar que entre con la cuenta de Google de ${u.email}? Hacelo solo si sabés que ese correo es de ${u.name}.`,
+            ok: 'Permitir', done: 'Listo: la próxima vez puede entrar con Google.' })),
         !self && !isAdmin && (blocked
           ? button('Levantar suspensión', () => adminAction('admin_user', { id: u.id, action: 'unblock' }, { done: 'Suspensión levantada.' }))
           : button('Suspender', () => openSuspend(u), 'btn-danger')),
@@ -621,7 +625,7 @@ function renderRatings() {
       // Ayuda a ver calificaciones de cuentas inventadas: las hechas con cuentas recién creadas.
       r.rater_created > r.updated - NEW_ACCOUNT_DAYS * 86400 && badge('Cuenta nueva', 'warn'),
       Number(r.rater_google) === 1 && badge('Google'), badge(when(r.updated), 'off')),
-    el('p', { className: 'item-title' }, starsText(Number(r.stars)), ` ${r.rater_name} calificó a ${r.rated_name}`),
+    el('p', { className: 'item-title' }, starsText(Number(r.stars)), ` ${r.rater_name} calificó a ${r.rated_name} ${ROLE_TEXT[r.role] || ''}`.trimEnd()),
     el('p', { className: 'item-meta', textContent: `${r.rater_email} → ${r.rated_email}` }),
     r.comment && el('p', { className: 'item-quote', textContent: r.comment }),
     el('div', { className: 'item-actions' },
@@ -637,8 +641,13 @@ function renderSettings(settings) {
   form.googleClientId.value = settings.googleClientId;
   $('#google-status').textContent = settings.googleClientId
     ? 'Activado: en "Entrar" aparece el botón "Continuar con Google".'
-    : 'Apagado: todavía no cargaste el ID de cliente de Google.';
-  // Las dos direcciones del sitio, con y sin www (en la versión de prueba no hay .site-origins).
+    : 'Falta el ID de cliente de Google: sin él nadie puede entrar.';
+}
+
+// Ayuda para conseguir el ID de cliente, con las dos direcciones del sitio (con y sin www).
+// En la versión de prueba la dirección no es la del sitio y no hay .site-origins.
+function fillGoogleHelp() {
+  document.querySelectorAll('.google-help').forEach((slot) => slot.replaceWith($('#google-help-tpl').content.cloneNode(true)));
   const host = location.hostname.replace(/^www\./, '');
   const origins = location.protocol === 'https:' && host.includes('.') ? [`https://${host}`, `https://www.${host}`] : [location.origin];
   document.querySelectorAll('.site-origins').forEach((node) => {
@@ -653,7 +662,7 @@ async function saveSettings(event) {
   await busy(form, async () => {
     await api('admin_settings', { body: { googleClientId } });
     state.googleClientId = googleClientId;
-    toast(googleClientId ? 'Listo: el ingreso con Google quedó activado.' : 'Listo: el ingreso con Google quedó apagado.');
+    toast('Listo: guardaste el ID de cliente de Google.');
     await loadAdmin();
   });
 }
@@ -706,6 +715,15 @@ function starsText(stars) {
   return node;
 }
 
+// Las dos reputaciones de una persona: como conductor y como acompañante.
+function roleRatings(target, profile, emptyText) {
+  target.replaceChildren(...[['Como conductor', profile.asDriver], ['Como acompañante', profile.asRider]].map(([label, pair]) => {
+    const summary = el('span');
+    ratingSummary(summary, pair.rating, pair.count, emptyText);
+    return el('p', { className: 'rating-line' }, el('span', { className: 'rating-role', textContent: label }), summary);
+  }));
+}
+
 function ratingSummary(target, average, count, emptyText) {
   if (!count) {
     target.replaceChildren(emptyText);
@@ -733,7 +751,8 @@ function reviewItem(review) {
       el('span', { className: 'who' }, avatar(review.rater_photo, review.rater_name, 'xs'),
         el('a', { href: `#perfil-${review.rater_id}`, textContent: review.rater_name })),
       el('span', { className: 'review-date', textContent: when(review.updated) })),
-    starsText(Number(review.stars)),
+    el('p', { className: 'review-rating' }, starsText(Number(review.stars)),
+      ROLE_TEXT[review.role] && el('span', { className: 'muted', textContent: ` · ${ROLE_TEXT[review.role]}` })),
     review.comment && el('p', { textContent: review.comment }));
 }
 
@@ -768,35 +787,19 @@ function renderContacts() {
     el('span', { className: 'muted', textContent: ` · ${c.trip} · ${formatDay(c.day)}` }))));
 }
 
+// La foto sale de la cuenta de Google: se puede quitar y volver a mostrar.
 function renderMyPhoto() {
   const me = state.user;
   $('#me-photo').replaceChildren(avatar(me.photo, me.name, 'lg'));
-  $('#photo-label').textContent = me.photo ? 'Cambiar foto' : 'Subir foto';
-  $('#photo-google').hidden = !me.googlePicture;
+  $('#photo-google').hidden = Boolean(me.photo) || !me.googlePicture;
   $('#photo-delete').hidden = !me.photo;
 }
 
-// Achica la foto en el teléfono antes de mandarla: sube más rápido y gasta menos datos.
-async function shrinkPhoto(file) {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
-    const canvas = Object.assign(document.createElement('canvas'), {
-      width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale),
-    });
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-    return blob || file;
-  } catch {
-    return file;
-  }
-}
-
-async function photoAction(action, form, done) {
-  const buttons = document.querySelectorAll('.photo-actions button, .photo-actions input');
+async function photoAction(action, done) {
+  const buttons = document.querySelectorAll('.photo-actions button');
   buttons.forEach((node) => { node.disabled = true; });
   try {
-    const result = await api(action, form ? { form } : { body: {} });
+    const result = await api(action, { body: {} });
     state.user = result.user;
     state.tripsLoaded = false;
     renderMyPhoto();
@@ -808,19 +811,9 @@ async function photoAction(action, form, done) {
   }
 }
 
-async function uploadPhoto(event) {
-  const input = event.currentTarget;
-  const [file] = input.files;
-  input.value = '';
-  if (!file) return;
-  const form = new FormData();
-  form.append('photo', await shrinkPhoto(file), 'foto.jpg');
-  await photoAction('photo_upload', form, 'Listo: tu foto quedó guardada.');
-}
-
 async function deletePhoto() {
-  if (!(await ask('¿Quitar tu foto de perfil?', 'Quitar foto'))) return;
-  await photoAction('photo_delete', null, 'Listo: quitaste tu foto.');
+  if (!(await ask('¿Quitar tu foto de perfil? No se va a volver a poner sola cuando entres con Google.', 'Quitar foto'))) return;
+  await photoAction('photo_delete', 'Listo: quitaste tu foto.');
 }
 
 async function loadProfile() {
@@ -842,7 +835,7 @@ async function loadProfile() {
   // La foto puede haber cambiado desde otro lado (por ejemplo, la quitó la administración).
   state.user.photo = data.profile.photo;
   renderMyPhoto();
-  ratingSummary($('#me-rating'), data.profile.rating, data.profile.ratings, 'Todavía no tenés calificaciones.');
+  roleRatings($('#me-rating'), data.profile, 'todavía sin calificaciones');
   $('#me-reviews').replaceChildren(...data.reviews.map(reviewItem));
 }
 
@@ -861,13 +854,19 @@ async function saveName(event) {
 async function sendRating(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  const stars = Number(new FormData(form).get('stars'));
+  const choice = new FormData(form);
+  const role = choice.get('role');
+  const stars = Number(choice.get('stars'));
+  if (!ROLE_TEXT[role]) {
+    showError(form, 'Elegí si manejaba o si viajó como acompañante.');
+    return;
+  }
   if (!stars) {
     showError(form, 'Elegí de 1 a 5 estrellas.');
     return;
   }
   await busy(form, async () => {
-    await api('rate', { body: { user: form.dataset.user, stars, comment: form.comment.value.trim() } });
+    await api('rate', { body: { user: form.dataset.user, role, stars, comment: form.comment.value.trim() } });
     state.tripsLoaded = false;
     toast('¡Gracias! Tu calificación quedó guardada.');
     await loadPublicProfile(form.dataset.user);
@@ -927,7 +926,7 @@ async function loadPublicProfile(id) {
   const { profile } = data;
   $('#pp-photo').replaceChildren(avatar(profile.photo, profile.name, 'lg'));
   $('#pp-name').textContent = profile.name;
-  ratingSummary($('#pp-rating'), profile.rating, profile.ratings, 'Todavía no tiene calificaciones.');
+  roleRatings($('#pp-rating'), profile, 'todavía sin calificaciones');
   $('#pp-meta').textContent = memberSince(profile.created);
   const canRate = Boolean(state.user) && state.user.id !== profile.id;
   form.hidden = !canRate;
@@ -937,8 +936,11 @@ async function loadPublicProfile(id) {
     showError(form, '');
     form.dataset.user = profile.id;
     $('#rate-name').textContent = profile.name;
+    form.querySelectorAll('.rate-who').forEach((node) => { node.textContent = profile.name; });
     if (data.mine) {
       form.querySelector(`input[name="stars"][value="${data.mine.stars}"]`).checked = true;
+      const role = form.querySelector(`input[name="role"][value="${data.mine.role}"]`);
+      if (role) role.checked = true;
       form.comment.value = data.mine.comment;
     }
     $('#rate-delete').hidden = !data.mine;
@@ -991,10 +993,7 @@ async function init() {
   $('#search').addEventListener('input', renderTrips);
   $('#search').addEventListener('reset', () => setTimeout(renderTrips));
   $('#publish').addEventListener('submit', publish);
-  $('#login').addEventListener('submit', authenticate);
-  $('#register').addEventListener('submit', authenticate);
-  $('#tab-login').addEventListener('click', () => selectTab('login'));
-  $('#tab-register').addEventListener('click', () => selectTab('register'));
+  $('#setup-form').addEventListener('submit', setupGoogle);
   $('#logout').addEventListener('click', logout);
   $('#report-form').addEventListener('submit', sendReport);
   $('#report-cancel').addEventListener('click', () => $('#report-dlg').close());
@@ -1010,14 +1009,14 @@ async function init() {
   $('#copy-link').addEventListener('click', copyProfileLink);
   // Después de entrar, se vuelve al perfil que se quería calificar.
   $('#rate-login a').addEventListener('click', () => { state.returnTo = location.hash.slice(1); });
-  $('#photo-input').addEventListener('change', uploadPhoto);
-  $('#photo-google').addEventListener('click', () => photoAction('photo_google', null, 'Listo: ahora usás tu foto de Google.'));
+  $('#photo-google').addEventListener('click', () => photoAction('photo_google', 'Listo: se ve de nuevo tu foto de Google.'));
   $('#photo-delete').addEventListener('click', deletePhoto);
   $('#rate-form').addEventListener('submit', sendRating);
   $('#rate-form').addEventListener('change', (event) => showError(event.currentTarget, ''));
   $('#rate-delete').addEventListener('click', deleteRating);
   $('#filter-ratings').addEventListener('change', renderRatings);
   $('#settings-form').addEventListener('submit', saveSettings);
+  fillGoogleHelp();
   window.addEventListener('hashchange', route);
   try {
     await loadSession();

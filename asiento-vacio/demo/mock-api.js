@@ -2,15 +2,22 @@
 // Servidor de mentira para probar Asiento Vacío sin hosting. Atiende los mismos
 // pedidos que api.php y con las mismas reglas, pero guarda todo en este navegador.
 (() => {
-  const KEY = 'asiento-vacio-prueba-3';
-  // Versiones anteriores de la prueba guardaban fotos de DNI: se borran del navegador.
+  const KEY = 'asiento-vacio-prueba-4';
+  // Versiones anteriores de la prueba (algunas con fotos de DNI o contraseñas): se borran del navegador.
   try {
-    ['asiento-vacio-prueba', 'asiento-vacio-prueba-2'].forEach((old) => localStorage.removeItem(old));
+    ['asiento-vacio-prueba', 'asiento-vacio-prueba-2', 'asiento-vacio-prueba-3'].forEach((old) => localStorage.removeItem(old));
   } catch {
     // Sin almacenamiento no hay nada que borrar.
   }
   const ADMIN_CODE = 'PRUEBA2026';
-  const GOOGLE_CREDENTIAL = 'comprobante-de-prueba';
+  // Cuentas con las que deja entrar el botón de Google simulado.
+  const GOOGLE_ACCOUNTS = [
+    ['nueva', 'Una cuenta nueva (la tuya)'],
+    ['ej-marta', 'Marta, conductora de ejemplo'],
+    ['ej-lucia', 'Lucía, acompañante de ejemplo'],
+    ['ej-diego', 'Diego, conductor de ejemplo'],
+  ];
+  const RATING_ROLES = ['driver', 'rider'];
   const PRICE_WORDS = /\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/i;
   const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
   const SUSPEND_DAYS = [1, 7, 30, 0];
@@ -62,43 +69,31 @@
     return canvas.toDataURL('image/jpeg', 0.85);
   }
 
-  // Recorta la foto elegida en un cuadrado chico, como hace el servidor de verdad.
-  async function squarePhoto(file) {
-    if (!(file instanceof Blob) || !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 8 * 1024 * 1024) return null;
-    try {
-      const bitmap = await createImageBitmap(file);
-      const side = Math.min(bitmap.width, bitmap.height);
-      const canvas = Object.assign(document.createElement('canvas'), { width: 160, height: 160 });
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, 160, 160);
-      ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, 160, 160);
-      return canvas.toDataURL('image/jpeg', 0.85);
-    } catch {
-      return null;
-    }
-  }
+  // En la prueba no hay fotos reales de Google: se dibuja una de ejemplo.
+  const googlePhoto = () => drawnPhoto('#d9f1e4', '#d9a37f', '#0b6e4f');
 
   function seed() {
     const day = today();
     const ts = now();
     const user = (id, name, email, ago) => ({
-      id, email, name, password: '', google_sub: '', google_picture: '', photo: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: ts - ago * 86400,
+      id, email, name, google_sub: `prueba-${id}`, google_picture: '', photo: '', photo_off: 0, google_link_ok: 0,
+      is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: ts - ago * 86400,
     });
     const trip = (owner, origin, destination, inDays, hour, seats, driver, phone, vehicle, notes) => ({
       id: newId(), owner, origin, destination, day: addDays(day, inDays), hour, seats, driver, phone,
       phone_digits: phone.replace(/\D/g, ''), vehicle, notes, status: 'active', created: ts - (inDays + 1) * 5400,
     });
-    const rating = (rater, rated, stars, comment, ago) => ({
-      id: newId(), rater, rated, stars, comment, created: ts - ago * 86400, updated: ts - ago * 86400,
+    const rating = (rater, rated, role, stars, comment, ago) => ({
+      id: newId(), rater, rated, role, stars, comment, created: ts - ago * 86400, updated: ts - ago * 86400,
     });
     return {
       settings: { googleClientId: '1234567890-pruebaasiento.apps.googleusercontent.com' },
       users: [
-        { ...user('ej-marta', 'Marta', 'marta@ejemplo.com', 20), photo: drawnPhoto('#cfe0fb', '#e8b48f', '#1f55c7') },
+        { ...user('ej-marta', 'Marta', 'marta@ejemplo.com', 20), google_picture: 'prueba', photo: drawnPhoto('#cfe0fb', '#e8b48f', '#1f55c7') },
         user('ej-diego', 'Diego', 'diego@ejemplo.com', 9),
-        user('ej-rosa', 'Rosa', 'rosa@ejemplo.com', 3),
-        { ...user('ej-lucia', 'Lucía', 'lucia@ejemplo.com', 15), photo: drawnPhoto('#fde7c2', '#c98e6b', '#b42318') },
+        // Cuenta de una versión anterior, con contraseña: para ver cómo la administración la deja pasar a Google.
+        { ...user('ej-rosa', 'Rosa', 'rosa@ejemplo.com', 3), google_sub: '' },
+        { ...user('ej-lucia', 'Lucía', 'lucia@ejemplo.com', 15), google_picture: 'prueba', photo: drawnPhoto('#fde7c2', '#c98e6b', '#b42318') },
         user('ej-pablo', 'Pablo', 'pablo@ejemplo.com', 12),
       ],
       trips: [
@@ -109,12 +104,13 @@
         trip('ej-diego', 'Mar del Plata', 'La Plata', 5, '17:30', 3, 'Diego', '54 9 221 000 2222', 'VW Gol blanco', 'Aviso de ejemplo.'),
       ],
       ratings: [
-        rating('ej-lucia', 'ej-marta', 5, 'Súper puntual y muy amable. (Opinión de ejemplo)', 10),
-        rating('ej-pablo', 'ej-marta', 5, 'Viaje tranquilo, maneja con cuidado. (Opinión de ejemplo)', 6),
-        rating('ej-diego', 'ej-marta', 4, '', 4),
-        rating('ej-lucia', 'ej-diego', 4, 'Buena onda, paramos a desayunar. (Opinión de ejemplo)', 5),
-        rating('ej-pablo', 'ej-diego', 2, 'Llegó 40 minutos tarde y no avisó. (Opinión de ejemplo)', 2),
-        rating('ej-marta', 'ej-lucia', 5, 'Muy buena compañera de viaje. (Opinión de ejemplo)', 8),
+        rating('ej-lucia', 'ej-marta', 'driver', 5, 'Súper puntual y muy amable. (Opinión de ejemplo)', 10),
+        rating('ej-pablo', 'ej-marta', 'driver', 5, 'Viaje tranquilo, maneja con cuidado. (Opinión de ejemplo)', 6),
+        rating('ej-diego', 'ej-marta', 'driver', 4, '', 4),
+        rating('ej-lucia', 'ej-diego', 'driver', 4, 'Buena onda, paramos a desayunar. (Opinión de ejemplo)', 5),
+        rating('ej-pablo', 'ej-diego', 'driver', 2, 'Llegó 40 minutos tarde y no avisó. (Opinión de ejemplo)', 2),
+        rating('ej-marta', 'ej-lucia', 'rider', 5, 'Muy buena compañera de viaje. (Opinión de ejemplo)', 8),
+        rating('ej-diego', 'ej-pablo', 'rider', 5, 'Puntual en el punto de encuentro. (Opinión de ejemplo)', 3),
       ],
       reports: [],
       uid: null,
@@ -135,15 +131,6 @@
     }
   };
 
-  async function digest(text) {
-    try {
-      const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-      return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
-    } catch {
-      return `plain:${text}`;
-    }
-  }
-
   const reply = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
   class Failure extends Error {
     constructor(message, status = 400) {
@@ -162,9 +149,14 @@
   } : null);
   const suspended = (account) => fail(`Tu cuenta está suspendida${account.blocked_until ? untilText(account.blocked_until) : ''}.`
     + (account.blocked_reason ? ` Motivo: ${account.blocked_reason}` : ''), 403);
-  // Calificaciones que cuentan: no las de cuentas suspendidas.
-  const ratingsOf = (id) => db.ratings.filter((r) => r.rated === id && userById(r.rater)?.blocked !== 1);
+  // Calificaciones que cuentan (no las de cuentas suspendidas): todas, o solo como conductor o como acompañante.
+  const ratingsOf = (id, role = '') => db.ratings.filter((r) => r.rated === id && userById(r.rater)?.blocked !== 1 && (!role || r.role === role));
   const average = (list) => (list.length ? Math.round((list.reduce((sum, r) => sum + r.stars, 0) / list.length) * 10) / 10 : null);
+  const pair = (list) => ({ rating: average(list), count: list.length });
+  // La foto sale sola de la cuenta de Google, salvo que la hayan quitado.
+  const googlePhotoFor = (account) => {
+    if (!account.photo && !account.photo_off && account.google_picture) account.photo = googlePhoto();
+  };
 
   async function handle(method, action, params, input) {
     const mine = params.get('mine') === '1';
@@ -180,7 +172,7 @@
     const serialize = (trip) => {
       const { owner, ...rest } = trip;
       const own = Boolean(user && owner === user.id);
-      const list = ratingsOf(owner);
+      const list = ratingsOf(owner, 'driver');
       return { ...rest, driver: ownerOf(trip).name, driver_id: owner, driver_photo: ownerOf(trip).photo || null, driver_rating: average(list), driver_ratings: list.length,
         mine: own, canDelete: own || isAdmin };
     };
@@ -192,9 +184,9 @@
       if (trip.owner !== user.id && !(action === 'trip_delete' && isAdmin)) fail('No podés modificar este viaje.', 403);
       return trip;
     };
-    const signIn = (account) => {
+    const signIn = (account, isNew = false) => {
       db.uid = account.id;
-      return { csrf: 'prueba', user: publicUser(account) };
+      return { csrf: 'prueba', user: publicUser(account), new: isNew };
     };
     if (action.startsWith('admin_') && action !== 'admin_claim' && !isAdmin) {
       fail(user ? 'Esta sección es solo para administración.' : 'Iniciá sesión.', user ? 403 : 401);
@@ -209,44 +201,34 @@
         return { ok: true, csrf: 'prueba' };
 
       case 'login':
-      case 'register': {
-        const email = clean(input.email).toLowerCase();
-        const password = typeof input.password === 'string' ? input.password : '';
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !between(password, 10, 128)) {
-          fail('Revisá el correo y usá una contraseña de 10 a 128 caracteres.');
-        }
-        let account = db.users.find((u) => u.email === email);
-        if (action === 'register') {
-          const name = clean(input.name);
-          if (!between(name, 2, 80)) fail('Ingresá tu nombre (2 a 80 caracteres).');
-          if (account) fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
-          account = { id: newId(), email, name, password: await digest(password), google_sub: '', google_picture: '', photo: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
-          db.users.push(account);
-          return signIn(account);
-        }
-        if (!account || !account.password || account.password !== await digest(password)) {
-          fail(account?.google_sub ? 'Esta cuenta entra con Google: tocá "Continuar con Google".' : 'Correo o contraseña incorrectos.', 401);
-        }
-        if (account.blocked === 1) suspended(account);
-        return signIn(account);
+      case 'register':
+        return fail('Ahora se entra solo con la cuenta de Google.', 410);
+
+      case 'setup': {
+        if (db.settings.googleClientId) fail('El ingreso con Google ya está configurado.', 409);
+        if (String(input.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() !== ADMIN_CODE) fail('El código no es correcto.', 403);
+        const clientId = clean(input.googleClientId);
+        if (!GOOGLE_CLIENT_ID.test(clientId)) fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
+        db.settings.googleClientId = clientId;
+        return { googleClientId: clientId };
       }
 
       case 'google': {
-        // En la prueba, el botón de Google es simulado y siempre entra con la misma cuenta de ejemplo.
+        // En la prueba el botón de Google es simulado: deja entrar con una cuenta nueva o con una de ejemplo.
         if (!db.settings.googleClientId) fail('El ingreso con Google no está activado.', 404);
-        if (input.credential !== GOOGLE_CREDENTIAL) fail('No pudimos confirmar tu cuenta de Google. Probá de nuevo.', 401);
-        const sub = 'prueba-google';
-        let account = db.users.find((u) => u.google_sub === sub) || db.users.find((u) => u.email === 'google.prueba@ejemplo.com');
+        const who = /^prueba:([\w-]+)$/.exec(String(input.credential || ''))?.[1];
+        if (!GOOGLE_ACCOUNTS.some(([id]) => id === who)) fail('No pudimos confirmar tu cuenta de Google. Probá de nuevo.', 401);
+        let account = who === 'nueva' ? db.users.find((u) => u.google_sub === 'prueba-google') : userById(who);
         if (account) {
           if (account.blocked === 1) suspended(account);
-          if (!account.google_sub) Object.assign(account, { google_sub: sub, password: '' });
-          account.google_picture = 'prueba';
+          googlePhotoFor(account);
           return signIn(account);
         }
-        account = { id: newId(), email: 'google.prueba@ejemplo.com', name: 'Cuenta de Google (prueba)', password: '', google_sub: sub,
-          google_picture: 'prueba', photo: '', is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
+        account = { id: newId(), email: 'google.prueba@ejemplo.com', name: 'Cuenta de Google (prueba)', google_sub: 'prueba-google',
+          google_picture: 'prueba', photo: '', photo_off: 0, google_link_ok: 0, is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
+        googlePhotoFor(account);
         db.users.push(account);
-        return signIn(account);
+        return signIn(account, true);
       }
 
       case 'trips': {
@@ -330,15 +312,18 @@
         if (!profile || profile.blocked === 1) fail('Perfil no encontrado.', 404);
         const list = ratingsOf(profile.id);
         const reviews = [...list].sort((a, b) => b.updated - a.updated).slice(0, 50).map((r) => ({
-          stars: r.stars, comment: r.comment, updated: r.updated, rater_id: r.rater, rater_name: userById(r.rater).name,
+          stars: r.stars, comment: r.comment, role: r.role, updated: r.updated, rater_id: r.rater, rater_name: userById(r.rater).name,
           rater_photo: userById(r.rater).photo || null,
         }));
         const own = user ? db.ratings.find((r) => r.rater === user.id && r.rated === profile.id) : null;
         const trips = db.trips.filter((t) => t.owner === profile.id && t.status === 'active' && t.day >= today()).sort(byDayHour);
         return {
-          profile: { id: profile.id, name: profile.name, created: profile.created, photo: profile.photo || null, rating: average(list), ratings: list.length },
+          profile: {
+            id: profile.id, name: profile.name, created: profile.created, photo: profile.photo || null, rating: average(list), ratings: list.length,
+            asDriver: pair(ratingsOf(profile.id, 'driver')), asRider: pair(ratingsOf(profile.id, 'rider')),
+          },
           reviews,
-          mine: own ? { stars: own.stars, comment: own.comment } : null,
+          mine: own ? { stars: own.stars, comment: own.comment, role: own.role } : null,
           trips: trips.map(serialize),
         };
       }
@@ -349,36 +334,29 @@
         if (!target || target.blocked === 1) fail('Perfil no encontrado.', 404);
         if (target.id === me.id) fail('No podés calificarte a vos mismo.');
         if (!Number.isInteger(input.stars) || input.stars < 1 || input.stars > 5) fail('Elegí de 1 a 5 estrellas.');
+        if (!RATING_ROLES.includes(input.role)) fail('Elegí si esta persona manejaba o si viajó como acompañante.');
         const comment = clean(input.comment);
         if ([...comment].length > MAX_COMMENT) fail(`El comentario puede tener hasta ${MAX_COMMENT} letras.`);
         const existing = db.ratings.find((r) => r.rater === me.id && r.rated === target.id);
         if (existing) {
-          Object.assign(existing, { stars: input.stars, comment, updated: now() });
+          Object.assign(existing, { stars: input.stars, role: input.role, comment, updated: now() });
         } else {
-          db.ratings.push({ id: newId(), rater: me.id, rated: target.id, stars: input.stars, comment, created: now(), updated: now() });
+          db.ratings.push({ id: newId(), rater: me.id, rated: target.id, role: input.role, stars: input.stars, comment, created: now(), updated: now() });
         }
         return { ok: true };
       }
 
-      case 'photo_upload': {
-        const me = requireUser();
-        const photo = await squarePhoto(input.photo);
-        if (!photo) fail('Elegí una foto JPG, PNG o WebP de hasta 8 MB.');
-        me.photo = photo;
-        return { user: publicUser(me) };
-      }
-
       case 'photo_google': {
         const me = requireUser();
-        if (!me.google_picture) fail('Tu cuenta no tiene una foto de Google para usar.', 404);
-        // En la prueba no hay foto real de Google: se dibuja una de ejemplo.
-        me.photo = drawnPhoto('#d9f1e4', '#d9a37f', '#0b6e4f');
+        if (!me.google_picture) fail('Tu cuenta de Google no tiene foto.', 404);
+        me.photo_off = 0;
+        me.photo = googlePhoto();
         return { user: publicUser(me) };
       }
 
       case 'photo_delete': {
         const me = requireUser();
-        me.photo = '';
+        Object.assign(me, { photo: '', photo_off: 1 });
         return { user: publicUser(me) };
       }
 
@@ -432,7 +410,7 @@
             const rater = userById(r.rater);
             const rated = userById(r.rated);
             return {
-              id: r.id, stars: r.stars, comment: r.comment, updated: r.updated,
+              id: r.id, stars: r.stars, comment: r.comment, role: r.role, updated: r.updated,
               rater_id: rater.id, rater_name: rater.name, rater_email: rater.email,
               rater_created: rater.created, rater_google: rater.google_sub ? 1 : 0,
               rated_id: rated.id, rated_name: rated.name, rated_email: rated.email,
@@ -463,6 +441,7 @@
             return {
               id: u.id, email: u.email, name: u.name, created: u.created, is_admin: u.is_admin, blocked: u.blocked,
               blocked_until: u.blocked_until || 0, blocked_reason: u.blocked_reason || '', google: u.google_sub ? 1 : 0,
+              google_link_ok: u.google_link_ok || 0,
               trips: db.trips.filter((t) => t.owner === u.id && t.status !== 'deleted').length,
               trips_total: db.trips.filter((t) => t.owner === u.id).length,
               user_rating: average(list), user_ratings: list.length, photo: u.photo || null,
@@ -473,12 +452,9 @@
       case 'admin_settings':
         if (method === 'POST') {
           const clientId = clean(input.googleClientId);
-          if (clientId && !GOOGLE_CLIENT_ID.test(clientId)) {
+          if (!clientId) fail('Sin el ID de cliente de Google nadie podría entrar. Si cambiaste de proyecto en Google, pegá el ID nuevo.');
+          if (!GOOGLE_CLIENT_ID.test(clientId)) {
             fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
-          }
-          const googleAccounts = db.users.filter((u) => u.google_sub).length;
-          if (!clientId && googleAccounts) {
-            fail(`No se puede apagar: ${googleAccounts} ${googleAccounts === 1 ? 'cuenta entra' : 'cuentas entran'} con Google y no podrían volver a entrar. Si cambiaste de proyecto en Google, pegá el ID nuevo.`, 409);
           }
           db.settings.googleClientId = clientId;
           return { ok: true };
@@ -491,7 +467,12 @@
         if (target.id === user.id && ['block', 'remove_admin'].includes(input.action)) fail('No podés hacerte eso a vos mismo.');
         if (input.action === 'block' && target.is_admin === 1) fail('Primero quitale la administración.');
         if (input.action === 'remove_photo') {
-          target.photo = '';
+          Object.assign(target, { photo: '', photo_off: 1 });
+          return { ok: true };
+        }
+        if (input.action === 'allow_google') {
+          if (target.google_sub) fail('Esa cuenta ya entra con Google.');
+          target.google_link_ok = 1;
           return { ok: true };
         }
         if (input.action === 'block') {
@@ -525,14 +506,10 @@
     if (!url.startsWith('api.php')) return realFetch(resource, options);
     const params = new URL(url, 'https://prueba.local/').searchParams;
     let input = {};
-    if (options.body instanceof FormData) {
-      input = Object.fromEntries(options.body.entries());
-    } else {
-      try {
-        input = options.body ? JSON.parse(options.body) : {};
-      } catch {
-        input = {};
-      }
+    try {
+      input = options.body ? JSON.parse(options.body) : {};
+    } catch {
+      input = {};
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
     try {
@@ -546,8 +523,9 @@
     }
   };
 
-  // Dentro de Claude no se puede cargar el botón real de Google: este lo reemplaza y entra
-  // con una cuenta de ejemplo. En la página de verdad aparece el botón oficial.
+  // Dentro de Claude no se puede cargar el botón real de Google: este lo reemplaza y deja elegir con qué
+  // cuenta de ejemplo entrar, para probar las calificaciones entre conductores y acompañantes.
+  // En la página de verdad aparece el botón oficial y cada uno entra con su propia cuenta.
   window.google = {
     accounts: {
       id: {
@@ -555,11 +533,15 @@
           this.callback = config.callback;
         },
         renderButton(target) {
+          const select = Object.assign(document.createElement('select'), { id: 'google-prueba-cuenta' });
+          GOOGLE_ACCOUNTS.forEach(([value, text]) => select.append(new Option(text, value)));
+          const label = Object.assign(document.createElement('label'), { className: 'google-prueba', textContent: 'Entrar como' });
+          label.append(select);
           const button = Object.assign(document.createElement('button'), {
             type: 'button', className: 'btn btn-ghost', id: 'google-prueba', textContent: 'Continuar con Google (prueba)',
           });
-          button.addEventListener('click', () => this.callback({ credential: GOOGLE_CREDENTIAL }));
-          target.replaceChildren(button);
+          button.addEventListener('click', () => this.callback({ credential: `prueba:${select.value}` }));
+          target.replaceChildren(label, button);
         },
         disableAutoSelect() {},
       },
