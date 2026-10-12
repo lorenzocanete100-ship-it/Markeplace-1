@@ -23,6 +23,8 @@ const PRICE_WORDS = '/\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/iu';
 const MAX_DAYS_AHEAD = 180;
 const SESSION_DAYS = 7;
 const MAX_COMMENT = 300;
+const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+const PHOTO_SIZE = 320;
 const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
 const SUSPEND_DAYS = [1, 7, 30, 0];  // 0: sin fecha, hasta que la administración la levante
 const SUSPEND_REASONS = [
@@ -116,6 +118,7 @@ function connect(string $dir): PDO
         'is_admin' => 'INTEGER NOT NULL DEFAULT 0', 'blocked' => 'INTEGER NOT NULL DEFAULT 0',
         'blocked_until' => 'INTEGER NOT NULL DEFAULT 0', 'blocked_reason' => "TEXT NOT NULL DEFAULT ''",
         'google_sub' => "TEXT NOT NULL DEFAULT ''",
+        'photo' => "TEXT NOT NULL DEFAULT ''", 'google_picture' => "TEXT NOT NULL DEFAULT ''",
     ];
     foreach ($added as $column => $type) {
         if (!in_array($column, $columns, true)) {
@@ -206,7 +209,7 @@ function rating_sql(string $who, string $as): string
 
 function load_user(PDO $db, string $id): ?array
 {
-    return query($db, 'SELECT id,email,name,is_admin,blocked,google_sub,created FROM users WHERE id=?', [$id])->fetch() ?: null;
+    return query($db, 'SELECT id,email,name,is_admin,blocked,google_sub,google_picture,photo,created FROM users WHERE id=?', [$id])->fetch() ?: null;
 }
 
 function public_user(?array $user): ?array
@@ -214,7 +217,58 @@ function public_user(?array $user): ?array
     return $user ? [
         'id' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'created' => (int)$user['created'],
         'admin' => (int)$user['is_admin'] === 1, 'google' => $user['google_sub'] !== '',
+        'photo' => photo_url($user['photo']), 'googlePicture' => $user['google_picture'] !== '',
     ] : null;
+}
+
+// Las fotos se guardan fuera de public_html y se sirven con api.php?a=photo.
+function photo_url(?string $file): ?string
+{
+    return $file ? "api.php?a=photo&f=$file" : null;
+}
+
+// Recorta la foto en un cuadrado y la guarda como JPEG nuevo: al recodificarla se pierden los
+// datos ocultos de la cámara (como la ubicación GPS). Devuelve null si no es una foto válida.
+function save_photo(string $bytes, string $folder): ?string
+{
+    $info = @getimagesizefromstring($bytes);
+    if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true) || $info[0] * $info[1] > 30_000_000) {
+        return null;
+    }
+    $image = @imagecreatefromstring($bytes);
+    if (!$image) {
+        return null;
+    }
+    if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
+        $stream = fopen('php://memory', 'r+');
+        fwrite($stream, $bytes);
+        rewind($stream);
+        $exif = @exif_read_data($stream);
+        fclose($stream);
+        $turn = [3 => 180, 6 => -90, 8 => 90][(int)($exif['Orientation'] ?? 1)] ?? 0;
+        if ($turn) {
+            $image = imagerotate($image, $turn, 0);
+        }
+    }
+    $width = imagesx($image);
+    $height = imagesy($image);
+    $side = min($width, $height);
+    $square = imagecreatetruecolor(PHOTO_SIZE, PHOTO_SIZE);
+    imagefill($square, 0, 0, imagecolorallocate($square, 255, 255, 255));  // fondo blanco para PNG transparentes
+    imagecopyresampled($square, $image, 0, 0, intdiv($width - $side, 2), intdiv($height - $side, 2), PHOTO_SIZE, PHOTO_SIZE, $side, $side);
+    if (!is_dir($folder) && !@mkdir($folder, 0700, true)) {
+        return null;
+    }
+    $name = bin2hex(random_bytes(16)) . '.jpg';
+    return imagejpeg($square, "$folder/$name", 85) ? $name : null;
+}
+
+function replace_photo(PDO $db, string $folder, array $user, string $file): void
+{
+    query($db, 'UPDATE users SET photo=? WHERE id=?', [$file, $user['id']]);
+    if ($user['photo'] !== '' && preg_match('/^[a-f0-9]{32}\.jpg$/', $user['photo'])) {
+        @unlink("$folder/{$user['photo']}");
+    }
 }
 
 function suspended(array $account): never
@@ -326,6 +380,23 @@ function google_identity(string $jwt, string $clientId, string $dir, string $cer
 try {
     $dir = data_dir($config);
     $db = connect($dir);
+    $photos = "$dir/fotos";
+
+    // Las fotos de perfil son públicas: se sirven sin abrir sesión y se guardan en el navegador,
+    // porque cada foto nueva tiene otro nombre.
+    if (($_GET['a'] ?? '') === 'photo' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        $file = (string)($_GET['f'] ?? '');
+        if (!preg_match('/^[a-f0-9]{32}\.jpg$/', $file) || !is_file("$photos/$file")
+            || !query($db, 'SELECT 1 FROM users WHERE photo=? AND blocked=0', [$file])->fetch()) {
+            fail('Foto no encontrada.', 404);
+        }
+        header('Content-Type: image/jpeg');
+        header('Cache-Control: public, max-age=31536000, immutable');
+        header('Content-Length: ' . filesize("$photos/$file"));
+        readfile("$photos/$file");
+        exit;
+    }
+
     start_session($dir);
 
     $method = $_SERVER['REQUEST_METHOD'];
@@ -361,10 +432,11 @@ try {
         $row['driver_id'] = $row['owner'];
         $row['driver_rating'] = $row['driver_rating'] === null ? null : (float)$row['driver_rating'];
         $row['driver_ratings'] = (int)$row['driver_ratings'];
+        $row['driver_photo'] = photo_url($row['driver_photo']);
         unset($row['owner']);
         return [...$row, 'mine' => $mine, 'canDelete' => $mine || $isAdmin];
     };
-    $tripsSql = 'SELECT t.*, ' . rating_sql('t.owner', 'driver') . ' FROM trips t JOIN users u ON u.id=t.owner';
+    $tripsSql = 'SELECT t.*, u.photo AS driver_photo, ' . rating_sql('t.owner', 'driver') . ' FROM trips t JOIN users u ON u.id=t.owner';
     $requireUser = function () use ($user): array {
         return $user ?? fail('Iniciá sesión.', 401);
     };
@@ -451,6 +523,8 @@ try {
                 fail('No pudimos confirmar tu cuenta de Google. Probá de nuevo.', 401);
             }
             $email = strtolower($claims['email']);
+            $picture = is_string($claims['picture'] ?? null) && preg_match($config['google_picture_pattern'], $claims['picture'])
+                ? $claims['picture'] : '';
             $fields = 'SELECT id,google_sub,blocked,blocked_until,blocked_reason FROM users';
             $account = query($db, "$fields WHERE google_sub=?", [$claims['sub']])->fetch()
                 ?: query($db, "$fields WHERE email=?", [$email])->fetch();
@@ -467,6 +541,7 @@ try {
                     query($db, 'UPDATE users SET google_sub=?, password=? WHERE id=?',
                         [$claims['sub'], password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), $account['id']]);
                 }
+                query($db, 'UPDATE users SET google_picture=? WHERE id=?', [$picture, $account['id']]);
                 sign_in($db, $account['id']);
             }
             $name = mb_substr(clean($claims['name'] ?? ''), 0, 80);
@@ -474,8 +549,8 @@ try {
                 $name = mb_substr(explode('@', $email)[0], 0, 80);
             }
             $uid = bin2hex(random_bytes(16));
-            query($db, 'INSERT INTO users(id,email,name,password,created,google_sub) VALUES (?,?,?,?,?,?)',
-                [$uid, $email, $name, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), time(), $claims['sub']]);
+            query($db, 'INSERT INTO users(id,email,name,password,created,google_sub,google_picture) VALUES (?,?,?,?,?,?,?)',
+                [$uid, $email, $name, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), time(), $claims['sub'], $picture]);
             sign_in($db, $uid);
 
         case 'GET trips':
@@ -583,19 +658,20 @@ try {
             respond(['ok' => true], 201);
 
         case 'GET profile':
-            $row = query($db, 'SELECT u.id, u.name, u.created, u.blocked, ' . rating_sql('u.id', 'user') . ' FROM users u WHERE u.id=?',
+            $row = query($db, 'SELECT u.id, u.name, u.created, u.blocked, u.photo, ' . rating_sql('u.id', 'user') . ' FROM users u WHERE u.id=?',
                 [(string)($_GET['id'] ?? '')])->fetch();
             if (!$row || (int)$row['blocked'] === 1) {
                 fail('Perfil no encontrado.', 404);
             }
-            $reviews = query($db, 'SELECT r.stars, r.comment, r.updated, w.id AS rater_id, w.name AS rater_name
-                FROM ratings r JOIN users w ON w.id=r.rater WHERE r.rated=? AND w.blocked=0 ORDER BY r.updated DESC LIMIT 50',
-                [$row['id']])->fetchAll();
+            $reviews = array_map(fn($r) => [...$r, 'rater_photo' => photo_url($r['rater_photo'])],
+                query($db, 'SELECT r.stars, r.comment, r.updated, w.id AS rater_id, w.name AS rater_name, w.photo AS rater_photo
+                    FROM ratings r JOIN users w ON w.id=r.rater WHERE r.rated=? AND w.blocked=0 ORDER BY r.updated DESC LIMIT 50',
+                    [$row['id']])->fetchAll());
             $mine = $user ? query($db, 'SELECT stars, comment FROM ratings WHERE rater=? AND rated=?', [$user['id'], $row['id']])->fetch() : null;
             $trips = query($db, "$tripsSql WHERE t.owner=? AND t.status='active' AND t.day>=? ORDER BY t.day, t.hour LIMIT 50",
                 [$row['id'], today()])->fetchAll();
             respond([
-                'profile' => ['id' => $row['id'], 'name' => $row['name'], 'created' => (int)$row['created'],
+                'profile' => ['id' => $row['id'], 'name' => $row['name'], 'created' => (int)$row['created'], 'photo' => photo_url($row['photo']),
                     'rating' => $row['user_rating'] === null ? null : (float)$row['user_rating'], 'ratings' => (int)$row['user_ratings']],
                 'reviews' => $reviews,
                 'mine' => $mine ?: null,
@@ -632,6 +708,45 @@ try {
             $me = $requireUser();
             query($db, 'DELETE FROM ratings WHERE rater=? AND rated=?', [$me['id'], (string)($input['user'] ?? '')]);
             respond(['ok' => true]);
+
+        case 'POST photo_upload':
+            $me = $requireUser();
+            if (!limit($db, 'photo:' . $me['id'], 10, 86400)) {
+                fail('Cambiaste la foto muchas veces hoy. Probá mañana.', 429);
+            }
+            $upload = $_FILES['photo'] ?? null;
+            $ok = is_array($upload) && ($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK
+                && is_uploaded_file($upload['tmp_name']) && $upload['size'] <= MAX_PHOTO_BYTES;
+            $file = $ok ? save_photo((string)file_get_contents($upload['tmp_name']), $photos) : null;
+            if (!$file) {
+                fail('Elegí una foto JPG, PNG o WebP de hasta 8 MB.');
+            }
+            replace_photo($db, $photos, $me, $file);
+            respond(['user' => public_user(load_user($db, $me['id']))]);
+
+        case 'POST photo_google':
+            $me = $requireUser();
+            $url = $me['google_picture'];
+            if ($url === '' || !preg_match($config['google_picture_pattern'], $url)) {
+                fail('Tu cuenta no tiene una foto de Google para usar.', 404);
+            }
+            if (!limit($db, 'photo:' . $me['id'], 10, 86400)) {
+                fail('Cambiaste la foto muchas veces hoy. Probá mañana.', 429);
+            }
+            // Google entrega la foto chica (=s96-c): se pide una más grande.
+            $url = preg_replace('/=s\d+(-c)?$/', '=s400-c', $url);
+            $bytes = @file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 8, 'follow_location' => 0]]), 0, MAX_PHOTO_BYTES + 1);
+            $file = is_string($bytes) && strlen($bytes) <= MAX_PHOTO_BYTES ? save_photo($bytes, $photos) : null;
+            if (!$file) {
+                fail('No pudimos traer tu foto de Google. Probá subir una desde tu teléfono.', 502);
+            }
+            replace_photo($db, $photos, $me, $file);
+            respond(['user' => public_user(load_user($db, $me['id']))]);
+
+        case 'POST photo_delete':
+            $me = $requireUser();
+            replace_photo($db, $photos, $me, '');
+            respond(['user' => public_user(load_user($db, $me['id']))]);
 
         case 'POST admin_claim':
             if (!$user) {
@@ -688,11 +803,11 @@ try {
                 FROM trips t JOIN users u ON u.id=t.owner ORDER BY t.created DESC LIMIT 500")->fetchAll()]);
 
         case 'GET admin_users':
-            respond(['items' => query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked,
+            respond(['items' => array_map(fn($u) => [...$u, 'photo' => photo_url($u['photo'])], query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked,
                     u.blocked_until, u.blocked_reason, u.google_sub != '' AS google,
                     (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id AND t.status!='deleted') AS trips,
-                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total, " . rating_sql('u.id', 'user') . "
-                FROM users u ORDER BY u.created DESC LIMIT 1000")->fetchAll()]);
+                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total, u.photo, " . rating_sql('u.id', 'user') . "
+                FROM users u ORDER BY u.created DESC LIMIT 1000")->fetchAll())]);
 
         case 'GET admin_settings':
             respond(['googleClientId' => setting($db, 'google_client_id')]);
@@ -741,6 +856,10 @@ try {
                 }
                 query($db, 'UPDATE users SET blocked=1, blocked_until=?, blocked_reason=? WHERE id=?',
                     [$days ? time() + $days * 86400 : 0, $reason, $target['id']]);
+                respond(['ok' => true]);
+            }
+            if ($do === 'remove_photo') {
+                replace_photo($db, $photos, $target, '');
                 respond(['ok' => true]);
             }
             $changes = ['unblock' => "blocked=0, blocked_until=0, blocked_reason=''", 'make_admin' => 'is_admin=1',
