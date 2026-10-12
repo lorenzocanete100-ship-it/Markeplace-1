@@ -18,16 +18,18 @@ hosting web de Hostinger (planes Premium o Business).
 ```
 public/            ← esto es lo que va en public_html
   index.html       página
-  api.php          servidor (cuentas y viajes)
-  config.php       configuración (código de administración)
+  api.php          servidor (cuentas, viajes, calificaciones y fotos)
+  config.php       configuración (código de administración y Google)
   .htaccess        seguridad (HTTPS lo fuerza Hostinger)
   favicon.svg
   assets/          estilos y JavaScript
 tests/api_test.php pruebas automáticas
 ```
 
-La base de datos se crea sola en `asiento-vacio-datos/`, una carpeta **al lado**
-de `public_html` (no adentro), para que nadie la pueda descargar.
+Todo lo que se guarda va a `asiento-vacio-datos/`, una carpeta **al lado** de
+`public_html` (no adentro), para que nadie la pueda descargar: la base de
+datos, las sesiones, las fotos de perfil (`fotos/`) y las claves públicas de
+Google (`google-certs.json`). Se crea sola la primera vez que alguien entra.
 
 ## Probar en tu computadora
 
@@ -36,64 +38,94 @@ php -S 127.0.0.1:8000 -t public     # abrir http://127.0.0.1:8000
 php tests/api_test.php              # correr las pruebas
 ```
 
-## Verificación de perfiles (opcional)
+## Calificaciones
 
-Conductores y acompañantes pueden crear una cuenta y, si quieren, mandar desde
-"Mi perfil" foto del DNI (frente y dorso) y una selfie con el DNI. La
-administración las revisa en Administrar → Verificaciones y aprueba o rechaza
-con un motivo. Las fotos se recodifican (se pierden los datos ocultos de la
-cámara, como la ubicación), se guardan en `asiento-vacio-datos/verificaciones`
-(fuera de `public_html`), solo las puede ver la administración y **se borran
-apenas se aprueban o rechazan**. Los perfiles verificados muestran la insignia
-"Perfil verificado" en sus viajes y en su perfil público (`#perfil-<id>`), y un
-acompañante verificado manda el enlace a su perfil en el WhatsApp al conductor.
+Cualquier persona con cuenta puede calificar a otra desde su perfil público
+(`#perfil-<id>`, se llega tocando el nombre del conductor en un viaje): de 1 a 5
+estrellas y un comentario corto opcional. Hay una sola calificación por par de
+personas (si se vuelve a calificar, se reemplaza) y se puede borrar. El promedio
+aparece en cada viaje y en el perfil, y la búsqueda tiene el filtro "Solo
+conductores con 4 estrellas o más". No se pide DNI ni ningún documento.
+
+## Ingreso con Google
+
+Además de correo y contraseña se puede entrar con la cuenta de Google. Para
+activarlo hace falta un "ID de cliente" de Google (es gratis):
+
+1. Entrar a <https://console.cloud.google.com/>, crear un proyecto y, en
+   "Pantalla de consentimiento de OAuth", completar el nombre del sitio.
+2. En "Credenciales" → "Crear credenciales" → "ID de cliente de OAuth", elegir
+   "Aplicación web" y en "Orígenes de JavaScript autorizados" poner
+   `https://asientovacio.com.ar` (y `https://www.asientovacio.com.ar` si se usa).
+3. Copiar el ID (termina en `.apps.googleusercontent.com`) y pegarlo en
+   Administrar → Ajustes.
+
+Si alguien ya tenía cuenta con el mismo correo, queda unida a la de Google y su
+contraseña anterior deja de servir. El sitio comprueba la firma de Google por su
+cuenta, sin librerías extra.
+
+## Fotos de perfil
+
+Desde "Mi perfil" cada uno puede subir una foto, usar la de su cuenta de Google o
+quitarla. La foto se recorta cuadrada, se achica a 320 × 320 y se vuelve a
+guardar como JPEG, así se pierden los datos ocultos de la cámara (como la
+ubicación). Se ve en los viajes, en el perfil público y en las opiniones; quien
+no tiene foto muestra la inicial de su nombre. La administración puede quitar
+cualquier foto.
 
 ## Probar sin hosting
 
 `php demo/build.php > asiento-vacio-prueba.html` arma una sola página con la
 app y un servidor de mentira (`demo/mock-api.js`) que responde como `api.php`
-pero guarda todo en el navegador, con viajes de ejemplo. Sirve para probarla
-como artifact de Claude. El código de administración de prueba es `PRUEBA-2026`.
+pero guarda todo en el navegador, con viajes y opiniones de ejemplo y un botón
+de Google simulado. Sirve para probarla como artifact de Claude. El código de
+administración de prueba es `PRUEBA-2026`.
 
 ## Hostinger
 
-Está publicada en `public_html/viajes` de asientovacio.com.ar, clonada por
-Hostinger desde la rama `hostinger` de este repositorio (que tiene solo el
-contenido de `public/`).
+La forma más simple es subir el zip con el contenido de `public/`:
 
-Para actualizarla después de cambiar algo:
+1. hPanel → Archivos → Administrador de archivos → `public_html`.
+2. Subir el zip y, con clic derecho, "Extraer" ahí mismo (si se pisa una versión
+   anterior, aceptar reemplazar los archivos).
+3. Abrir el sitio. La carpeta de datos se crea sola y lo que había de antes se
+   conserva.
+
+El zip se arma desde la rama `hostinger` de este repositorio, que tiene solo el
+contenido de `public/`:
 
 ```
 git subtree split --prefix=asiento-vacio/public -b hostinger
 git push origin hostinger
+git archive --format=zip -o asiento-vacio-hostinger.zip hostinger
 ```
 
-y en hPanel → Avanzado → Git, "Deploy" sobre la carpeta `viajes`.
-
-Para que asientovacio.com.ar (sin `/viajes/`) abra la app, crear en
-`public_html` un archivo `.htaccess` con estas dos líneas (solo redirige la
-página principal, no el resto):
-
-```
-RewriteEngine On
-RewriteRule ^$ /viajes/ [R=302,L]
-```
+También se puede publicar con hPanel → Avanzado → Git, clonando esa rama.
 
 ## Administrar
 
-En `#admin` (menú "Administrar") hay un resumen, las denuncias que manda la
-gente desde cada viaje, las verificaciones pendientes, la lista de todos los
-viajes (con borrar y restaurar) y la de usuarios, con filtro por conductores,
-acompañantes, suspendidos o verificados. A cada usuario se lo puede suspender
-1, 7 o 30 días o sin fecha, con un motivo que ve al intentar entrar; mientras
-dura no puede entrar y sus viajes no se ven, y al cumplirse el plazo se levanta
-sola. También se puede nombrar o quitar administradores y quitar la
-verificación.
+En `#admin` (link "Administración" al pie de la página, y "Administrar" en el
+menú para quien ya es administrador) hay un resumen y estas pestañas:
+
+- **Denuncias** que manda la gente desde cada viaje.
+- **Calificaciones**: todas las opiniones, con filtro "solo de 1 y 2 estrellas"
+  y botón para borrar las que no correspondan.
+- **Viajes**: la lista completa, con borrar y restaurar.
+- **Usuarios**: filtro por conductores, acompañantes, suspendidos o calificación
+  baja. A cada usuario se lo puede suspender 1, 7 o 30 días o sin fecha, con un
+  motivo que ve al intentar entrar; mientras dura no puede entrar, sus viajes no
+  se ven y sus calificaciones no cuentan, y al cumplirse el plazo se levanta
+  sola. También se puede quitar su foto y nombrar o quitar administradores.
+- **Ajustes**: el ID de cliente de Google.
 
 La primera cuenta de administración se activa una sola vez con un código
 secreto: en `config.php` solo está su huella SHA-256. Para cambiar el código,
 reemplazá esa huella por la de uno nuevo (`printf 'CODIGONUEVO' | sha256sum`,
 en mayúsculas y sin guiones).
+
+Las versiones anteriores pedían foto del DNI para verificar perfiles. Eso ya no
+existe: al actualizar, el sitio borra solo las fotos de DNI que hubieran quedado
+en el servidor.
 
 ## Aviso
 
