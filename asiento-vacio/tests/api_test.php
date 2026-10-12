@@ -59,6 +59,15 @@ foreach ([['cuenta-vieja', 'vieja@example.com', 'Cuenta vieja'], ['cuenta-gmail'
     ['cuenta-antigua', 'antigua@hotmail.com', 'Antigua']] as [$id, $email, $name]) {
     $addOld->execute([$id, $email, $name, password_hash('una-clave-de-prueba', PASSWORD_DEFAULT), time()]);
 }
+// Calificaciones de la versión anterior, que no decían cómo viajaron (a Lore, que publicó un viaje, y a la cuenta vieja).
+$legacy->exec("CREATE TABLE trips (id TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES users(id), origin TEXT NOT NULL, destination TEXT NOT NULL,
+    day TEXT NOT NULL, hour TEXT NOT NULL, seats INTEGER NOT NULL, driver TEXT NOT NULL, phone TEXT NOT NULL, phone_digits TEXT NOT NULL,
+    vehicle TEXT NOT NULL, notes TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created INTEGER NOT NULL)");
+$legacy->prepare("INSERT INTO trips VALUES ('viaje-viejo', 'cuenta-gmail', 'Lanús', 'Mar del Plata', ?, '08:00', 2, 'Lore', '54 9 11 1111 2222', '5491111112222', '', '', 'active', ?)")
+    ->execute([date('Y-m-d', strtotime('-30 days')), time() - 40 * 86400]);
+$legacy->exec("CREATE TABLE ratings (id TEXT PRIMARY KEY, rater TEXT NOT NULL REFERENCES users(id), rated TEXT NOT NULL REFERENCES users(id),
+    stars INTEGER NOT NULL, comment TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, updated INTEGER NOT NULL, UNIQUE(rater, rated))");
+$legacy->exec("INSERT INTO ratings VALUES ('r1', 'cuenta-vieja', 'cuenta-gmail', 4, 'Maneja bien.', 1, 1), ('r2', 'cuenta-gmail', 'cuenta-vieja', 5, '', 1, 1)");
 $legacy->exec("CREATE TABLE verifications (id TEXT PRIMARY KEY, user TEXT, status TEXT, reason TEXT, files TEXT, created INTEGER, decided INTEGER)");
 $legacy->exec("INSERT INTO verifications VALUES ('v1', 'cuenta-vieja', 'pending', '', '[\"ab.jpg\"]', 1, 0)");
 $legacy = null;
@@ -186,8 +195,12 @@ check('y un ID de cliente bien copiado', $anon->post('setup', ['code' => 'test-c
 [$code, $body] = $anon->post('setup', ['code' => 'test-code-1234', 'googleClientId' => ' ' . CLIENT_ID . ' ']);
 check('con el código se activa el ingreso con Google', $code === 200 && $body['googleClientId'] === CLIENT_ID
     && $anon->get('session')[1]['googleClientId'] === CLIENT_ID, $body);
-check('ya configurado, no se cambia desde Entrar', $anon->post('setup', ['code' => 'test-code-1234',
-    'googleClientId' => '98765432100-otroproyecto1.apps.googleusercontent.com'])[0] === 409);
+check('si se pegó un ID equivocado, con el código se corrige desde Entrar', $anon->post('setup', ['code' => 'test-code-1234',
+    'googleClientId' => '98765432100-otroproyecto1.apps.googleusercontent.com'])[0] === 200
+    && $anon->get('session')[1]['googleClientId'] === '98765432100-otroproyecto1.apps.googleusercontent.com'
+    && $anon->post('setup', ['code' => 'test-code-1234', 'googleClientId' => CLIENT_ID])[0] === 200
+    && $anon->post('setup', ['code' => 'AAAA-BBBB-CCCC-DDDD', 'googleClientId' => '98765432100-otroproyecto1.apps.googleusercontent.com'])[0] === 403
+    && $anon->get('session')[1]['googleClientId'] === CLIENT_ID);
 
 echo "Cuentas y viajes\n";
 $driver = new Client($base);
@@ -256,9 +269,11 @@ $admin = new Client($base);
 $signIn($admin, ['sub' => 'g-duena', 'email' => 'duena@gmail.com', 'name' => 'Dueña']);
 check('sin cuenta no se entra a administración', $anon->get('admin_users')[0] === 401);
 check('sin activar, un usuario no es administrador', $admin->get('admin_overview')[0] === 403);
+// La administración de antes era una cuenta vieja de Hotmail, que no puede pasar sola a Google.
+$db->exec("UPDATE users SET is_admin=1 WHERE id='cuenta-antigua'");
 check('código incorrecto', $admin->post('admin_claim', ['code' => 'AAAA-BBBB-CCCC-DDDD'])[0] === 403);
 [$code, $body] = $admin->post('admin_claim', ['code' => 'test-code-1234']);
-check('el código activa la administración', $code === 200 && $body['user']['admin'] === true, $body);
+check('el código activa la administración (aunque la de antes fuera una cuenta vieja que no puede entrar)', $code === 200 && $body['user']['admin'] === true, $body);
 check('el código no sirve una segunda vez', $other->post('admin_claim', ['code' => 'TESTCODE1234'])[0] === 409);
 check('los usuarios comunes no ven administración', $other->get('admin_trips')[0] === 403);
 
@@ -388,6 +403,9 @@ check('pero se puede cambiar por otro', $admin->post('admin_settings', ['googleC
     && $anon->get('session')[1]['googleClientId'] === CLIENT_ID);
 
 echo "Cuentas de antes, con contraseña\n";
+$profileOf = fn(Client $c, string $id) => $c->get('profile', "&id=$id")[1];
+check('las calificaciones de antes cuentan como de conductor si la persona publicó viajes', $profileOf($anon, 'cuenta-gmail')['profile']['asDriver'] == ['rating' => 4, 'count' => 1]
+    && $profileOf($anon, 'cuenta-vieja')['profile']['asRider'] == ['rating' => 5, 'count' => 1] && $profileOf($anon, 'cuenta-gmail')['reviews'][0]['role'] === 'driver');
 check('una cuenta vieja con Gmail pasa sola a Google', ($signIn(new Client($base), ['sub' => 'g-lore', 'email' => 'lore.viejo@gmail.com',
     'name' => 'Lorenzo'])[1]['user']['id'] ?? '') === 'cuenta-gmail');
 $veraClaims = ['sub' => 'g-vera', 'email' => 'vieja@example.com', 'name' => 'Vera'];
@@ -417,7 +435,6 @@ check('otra cuenta de Google con ese correo no entra', $signIn(new Client($base)
 
 echo "Calificaciones\n";
 $resetLimits();
-$profileOf = fn(Client $c, string $id) => $c->get('profile', "&id=$id")[1];
 $rate = fn(Client $c, array $body) => $c->post('rate', ['user' => $juan['id'], 'role' => 'driver', 'stars' => 5, ...$body])[0];
 check('calificar pide cuenta', $rate($anon, [])  === 401);
 check('no te podés calificar a vos mismo', $rate($driver, []) === 400);
@@ -469,7 +486,9 @@ check('administración borra una calificación', $admin->post('admin_rating', ['
 $profile = $profileOf($anon, $juan['id']);
 check('sin calificaciones como conductor el promedio queda vacío', $profile['profile']['asDriver'] === ['rating' => null, 'count' => 0]
     && count($profile['reviews']) === 1 && $profile['reviews'][0]['role'] === 'rider', $profile);
-check('administración ve el promedio de cada usuario', array_key_exists('user_rating', $find($admin->get('admin_users')[1]['items'], 'id', $juan['id'])));
+$juanRow = $find($admin->get('admin_users')[1]['items'], 'id', $juan['id']);
+check('administración ve los promedios de cada usuario como conductor y como acompañante', $juanRow['driver_ratings'] === 0
+    && $juanRow['rider_rating'] == 1 && $juanRow['rider_ratings'] === 1, $juanRow);
 [$code, $body] = $driver->post('trip_create', [...$trip, 'driver' => 'Otro Nombre']);
 $newTrip = $body['id'] ?? '';
 check('el viaje sale con el nombre de la cuenta', $code === 201 && $find($anon->get('trips')[1]['items'], 'id', $newTrip)['driver'] === 'Juan');

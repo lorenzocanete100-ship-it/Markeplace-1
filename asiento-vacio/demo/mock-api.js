@@ -205,7 +205,6 @@
         return fail('Ahora se entra solo con la cuenta de Google.', 410);
 
       case 'setup': {
-        if (db.settings.googleClientId) fail('El ingreso con Google ya está configurado.', 409);
         if (String(input.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() !== ADMIN_CODE) fail('El código no es correcto.', 403);
         const clientId = clean(input.googleClientId);
         if (!GOOGLE_CLIENT_ID.test(clientId)) fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
@@ -376,7 +375,8 @@
 
       case 'admin_claim': {
         if (!user) fail('Iniciá sesión.', 401);
-        if (db.users.some((u) => u.is_admin === 1)) fail('La administración ya está activada. Pedile acceso a un administrador.', 409);
+        // Solo cuentan los administradores que pueden entrar (con Google).
+        if (db.users.some((u) => u.is_admin === 1 && u.google_sub)) fail('La administración ya está activada. Pedile acceso a un administrador.', 409);
         if (String(input.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() !== ADMIN_CODE) fail('El código no es correcto.', 403);
         user.is_admin = 1;
         return { user: publicUser(user) };
@@ -445,6 +445,8 @@
               trips: db.trips.filter((t) => t.owner === u.id && t.status !== 'deleted').length,
               trips_total: db.trips.filter((t) => t.owner === u.id).length,
               user_rating: average(list), user_ratings: list.length, photo: u.photo || null,
+              driver_rating: average(ratingsOf(u.id, 'driver')), driver_ratings: ratingsOf(u.id, 'driver').length,
+              rider_rating: average(ratingsOf(u.id, 'rider')), rider_ratings: ratingsOf(u.id, 'rider').length,
             };
           }),
         };

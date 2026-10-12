@@ -36,9 +36,14 @@ Google (`google-certs.json`). Se crea sola la primera vez que alguien entra.
 ## Probar en tu computadora
 
 ```
-php -S 127.0.0.1:8000 -t public     # abrir http://127.0.0.1:8000
+php -S localhost:8000 -t public     # abrir http://localhost:8000
 php tests/api_test.php              # correr las pruebas
 ```
+
+Como se entra solo con Google, para entrar en la computadora hace falta un ID de
+cliente que tenga autorizado `http://localhost:8000` (ver abajo). Las pruebas no
+lo necesitan: usan un "Google" de mentira.
+
 
 ## Calificaciones
 
@@ -67,8 +72,9 @@ el nombre de Google (cada uno lo puede cambiar en "Mi perfil"). Hace falta un
 "ID de cliente" de Google (es gratis):
 
 1. Entrar a <https://console.cloud.google.com/>, crear un proyecto y, en
-   "Pantalla de consentimiento de OAuth", elegir público "Externo" y completar
-   el nombre del sitio.
+   "Pantalla de consentimiento de OAuth", elegir público "Externo", completar
+   el nombre del sitio y tocar "Publicar app" (si queda "en prueba", solo pueden
+   entrar los usuarios de prueba que se carguen ahí).
 2. En "Credenciales" → "Crear credenciales" → "ID de cliente de OAuth", elegir
    "Aplicación web" y en "Orígenes de JavaScript autorizados" poner
    `https://asientovacio.com.ar` y `https://www.asientovacio.com.ar`.
@@ -79,7 +85,13 @@ el nombre de Google (cada uno lo puede cambiar en "Mi perfil"). Hace falta un
    mismo código.
 
 Más adelante el ID se cambia en Administrar → Ajustes (no se puede borrar,
-porque sin él nadie podría entrar). El sitio comprueba la firma de Google por su
+porque sin él nadie podría entrar). Si se pegó un ID equivocado y el botón de
+Google no funciona, en "Entrar" está el enlace "¿Sos el dueño del sitio y el
+botón de Google no funciona?", que deja cargar el correcto con el código.
+
+Si la administración era una cuenta vieja que no puede pasar sola a Google (ver
+abajo), el dueño entra con su cuenta de Google y vuelve a activar la
+administración con el código; después le da permiso a la cuenta vieja. El sitio comprueba la firma de Google por su
 cuenta, sin librerías extra (hace falta que PHP pueda bajar archivos por HTTPS,
 como en Hostinger).
 
@@ -90,7 +102,8 @@ al entrar con Google esa persona sigue con su misma cuenta. Con otros correos
 dueño de esos correos: en Administrar → Usuarios aparecen como "Cuenta vieja,
 con contraseña" y el botón "Dejar entrar con Google" la habilita. En los dos
 casos la contraseña deja de servir y se cierran las sesiones que estaban
-abiertas.
+abiertas. Las calificaciones de antes, que no decían cómo viajaron, se toman como
+de conductor si la persona calificada publicó viajes, y si no, de acompañante.
 
 ## Fotos de perfil
 
