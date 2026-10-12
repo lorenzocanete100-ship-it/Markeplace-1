@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="V+X Constructora: construcción llave en mano y refacciones con garantía total. 10 años de garantía escrita ante escribano. Cotizá tu obra online.">
+  <title>V+X Constructora | Llave en mano y refacciones</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="#inicio"><span class="logo">V+X</span> Constructora</a>
+      <nav class="links">
+        <a href="#garantia">Garantía</a>
+        <a href="#servicios">Servicios</a>
+        <a href="#cotizador" class="btn btn-sm">Cotizar obra</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="inicio">
+      <div class="wrap hero-in">
+        <p class="eyebrow">Construcción llave en mano · Refacciones · Humedad</p>
+        <h1>Somos la constructora que <span>respalda su trabajo por escrito.</span></h1>
+        <p class="lead">En V+X Constructora te damos <strong>garantía total</strong>: <strong>10 años de garantía escrita y certificada por escribano</strong>. Mucha trayectoria, obras entregadas en tiempo y forma y un solo responsable de principio a fin.</p>
+        <div class="cta">
+          <a href="#cotizador" class="btn">Cotizá tu obra ahora</a>
+          <a href="#" class="btn btn-wa js-wa" target="_blank" rel="noopener">Escribinos por WhatsApp</a>
+        </div>
+        <ul class="badges">
+          <li><b>10 años</b><span>de garantía escrita</span></li>
+          <li><b>Escribano</b><span>certifica la garantía</span></li>
+          <li><b>Llave en mano</b><span>entregamos lista para habitar</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="garantia">
+      <div class="wrap">
+        <h2>¿Por qué somos la mejor opción?</h2>
+        <p class="sub">Otras empresas prometen. Nosotros lo firmamos ante escribano.</p>
+        <div class="grid">
+          <article class="card">
+            <div class="ico" aria-hidden="true">🛡️</div>
+            <h3>Garantía total de 10 años</h3>
+            <p>Cada obra sale con una garantía escrita de 10 años, certificada por escribano público. Si algo falla, respondemos.</p>
+          </article>
+          <article class="card">
+            <div class="ico" aria-hidden="true">🏗️</div>
+            <h3>Mucha trayectoria</h3>
+            <p>Años construyendo viviendas y locales nos dan la experiencia para anticipar problemas y cumplir plazos.</p>
+          </article>
+          <article class="card">
+            <div class="ico" aria-hidden="true">🔑</div>
+            <h3>Llave en mano real</h3>
+            <p>Nos ocupamos de todo: proyecto, materiales, mano de obra y terminaciones. Vos recibís la llave.</p>
+          </article>
+          <article class="card">
+            <div class="ico" aria-hidden="true">💲</div>
+            <h3>Precio claro por m²</h3>
+            <p>Sin letra chica: cotizás online al instante y sabés cuánto vas a invertir antes de empezar.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="servicios">
+      <div class="wrap">
+        <h2>Servicios y precios</h2>
+        <p class="sub">Valores por metro cuadrado de construcción, en dólares.</p>
+        <div class="grid prices">
+          <article class="card price">
+            <h3>Llave en mano · Con materiales</h3>
+            <p class="amount">USD 980 <small>/ m²</small></p>
+            <p>Incluye materiales, mano de obra, dirección de obra y terminaciones.</p>
+          </article>
+          <article class="card price">
+            <h3>Mano de obra · Sin materiales</h3>
+            <p class="amount">USD 400 <small>/ m²</small></p>
+            <p>Vos aportás los materiales y nosotros construimos con nuestro equipo.</p>
+          </article>
+          <article class="card price">
+            <h3>Refacciones y humedad</h3>
+            <p class="amount">Con fotos</p>
+            <p>Subí fotos acá o mandalas por WhatsApp y te pasamos el presupuesto exacto.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="cotizador">
+      <div class="wrap narrow">
+        <h2>Cotizador automático</h2>
+        <p class="sub">Elegí el servicio, cargá los m² y obtené tu presupuesto estimado al instante.</p>
+
+        <form id="quote" class="panel" novalidate>
+          <fieldset>
+            <legend>1. ¿Qué necesitás?</legend>
+            <div class="options" role="radiogroup">
+              <label class="opt"><input type="radio" name="service" value="llave_en_mano" checked><span><b>Construcción llave en mano</b><small>Obra nueva completa</small></span></label>
+              <label class="opt"><input type="radio" name="service" value="refaccion"><span><b>Refacción</b><small>Ampliación, remodelación, arreglos</small></span></label>
+              <label class="opt"><input type="radio" name="service" value="humedad"><span><b>Humedad</b><small>Filtraciones, paredes, techos</small></span></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>2. Superficie y modalidad</legend>
+            <label class="field">Metros cuadrados (m²)
+              <input type="number" name="m2" min="1" max="100000" step="0.5" inputmode="decimal" placeholder="Ej: 120" required>
+            </label>
+            <div class="toggle" id="modeToggle">
+              <label><input type="radio" name="mode" value="con_materiales" checked><span>Con materiales<small>USD 980 / m²</small></span></label>
+              <label><input type="radio" name="mode" value="mano_obra"><span>Sin materiales<small>USD 400 / m²</small></span></label>
+            </div>
+          </fieldset>
+
+          <div class="result" id="result" aria-live="polite">
+            <span class="r-label">Presupuesto estimado</span>
+            <span class="r-amount" id="amount">USD 0</span>
+            <span class="r-note" id="note">Ingresá los m² para calcular.</span>
+          </div>
+
+          <fieldset>
+            <legend>3. Fotos de la obra <span class="tag" id="photoTag">opcional</span></legend>
+            <p class="hint" id="photoHint">Si tenés fotos del terreno o de los planos, subilas para afinar el presupuesto.</p>
+            <label class="drop">
+              <input type="file" name="photos" id="photos" accept="image/jpeg,image/png,image/webp" multiple>
+              <span>📷 Tocá para subir o sacar fotos <small>(hasta 6, JPG/PNG/WebP)</small></span>
+            </label>
+            <div class="thumbs" id="thumbs"></div>
+            <p class="hint">¿Preferís? También podés <a href="#" class="js-wa" target="_blank" rel="noopener">mandarlas por WhatsApp</a>.</p>
+          </fieldset>
+
+          <fieldset>
+            <legend>4. Tus datos</legend>
+            <div class="row">
+              <label class="field">Nombre<input name="name" autocomplete="name" maxlength="80" required></label>
+              <label class="field">Teléfono / WhatsApp<input name="phone" type="tel" autocomplete="tel" placeholder="Con código de área" maxlength="20" required></label>
+            </div>
+            <label class="field">Ubicación de la obra<input name="location" maxlength="120" placeholder="Barrio, ciudad" required></label>
+            <label class="field">Comentarios<textarea name="notes" rows="3" maxlength="2000" placeholder="Contanos qué querés hacer"></textarea></label>
+          </fieldset>
+
+          <p class="error" id="error" role="alert" hidden></p>
+          <button class="btn btn-block" type="submit" id="submit">Enviar solicitud de presupuesto</button>
+          <p class="fine">Precio estimado de referencia. El presupuesto final se confirma tras la visita técnica. Todas las obras incluyen 10 años de garantía escrita ante escribano.</p>
+        </form>
+
+        <div class="panel done" id="done" hidden>
+          <div class="ico big" aria-hidden="true">✅</div>
+          <h3>¡Solicitud recibida!</h3>
+          <p>Tu número de referencia es <b id="ref"></b>. Te contactamos a la brevedad.</p>
+          <p id="doneEstimate"></p>
+          <a href="#" id="doneWa" class="btn btn-wa btn-block" target="_blank" rel="noopener">Continuar por WhatsApp</a>
+          <button type="button" class="btn btn-ghost btn-block" id="again">Hacer otra cotización</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <p><span class="logo">V+X</span> Constructora · Construcción llave en mano y refacciones</p>
+      <p>Garantía total: 10 años escrita y certificada por escribano.</p>
+    </div>
+  </footer>
+
+  <a href="#" class="wa-float js-wa" target="_blank" rel="noopener" aria-label="WhatsApp">
+    <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><path fill="#fff" d="M16 3a13 13 0 0 0-11.2 19.6L3 29l6.6-1.7A13 13 0 1 0 16 3zm0 23.7a10.7 10.7 0 0 1-5.5-1.5l-.4-.2-3.9 1 1-3.8-.3-.4A10.7 10.7 0 1 1 16 26.7zm5.9-8c-.3-.2-1.9-1-2.2-1s-.5-.2-.7.2-.8 1-1 1.2-.4.2-.7 0a8.8 8.8 0 0 1-4.4-3.8c-.3-.6.3-.5 1-1.7.1-.2 0-.4 0-.6l-1-2.4c-.3-.6-.5-.5-.7-.5h-.6a1.2 1.2 0 0 0-.9.4 3.7 3.7 0 0 0-1.1 2.7 6.4 6.4 0 0 0 1.3 3.4 14.7 14.7 0 0 0 5.7 5c2.1.9 2.9 1 4 .8a3.4 3.4 0 0 0 2.2-1.6 2.8 2.8 0 0 0 .2-1.6c-.1-.2-.3-.3-.6-.4z"/></svg>
+  </a>
+</body>
+</html>
