@@ -127,11 +127,19 @@ function connect(string $dir): PDO
         'ratings' => ['role' => "TEXT NOT NULL DEFAULT ''"],
     ];
     $columnsOf = fn(string $table): array => array_column($pdo->query("PRAGMA table_info($table)")->fetchAll(), 'name');
-    $pending = function () use ($added, $columnsOf): array {
+    // Lo que hay que completar en las filas que ya existían cuando se agrega la columna. Las calificaciones
+    // de antes no decían cómo viajaron: se toman como de conductor si la persona calificada publicó viajes.
+    $backfill = [
+        'ratings.role' => "UPDATE ratings SET role = CASE WHEN rated IN (SELECT owner FROM trips) THEN 'driver' ELSE 'rider' END WHERE role = ''",
+    ];
+    $pending = function () use ($added, $backfill, $columnsOf): array {
         $changes = [];
         foreach ($added as $table => $columns) {
             foreach (array_diff(array_keys($columns), $columnsOf($table)) as $column) {
                 $changes[] = "ALTER TABLE $table ADD COLUMN $column {$columns[$column]}";
+                if (isset($backfill["$table.$column"])) {
+                    $changes[] = $backfill["$table.$column"];
+                }
             }
         }
         return $changes;
@@ -542,13 +550,10 @@ try {
             fail('Ahora se entra solo con la cuenta de Google.', 410);
 
         case 'POST setup':
-            // Sin el ID de cliente de Google nadie puede entrar, ni siquiera la administración: la primera
-            // vez lo carga el dueño del sitio con el código de administración.
+            // Sin un ID de cliente de Google que funcione nadie puede entrar, ni siquiera la administración: el
+            // dueño del sitio lo carga (la primera vez) o lo corrige (si pegó uno equivocado) con el código.
             if (!limit($db, 'claim:' . $ip, 10, 3600)) {
                 fail('Demasiados intentos. Esperá una hora.', 429);
-            }
-            if (setting($db, 'google_client_id') !== '') {
-                fail('El ingreso con Google ya está configurado.', 409);
             }
             if (!admin_code_ok($config, $input['code'] ?? '')) {
                 fail('El código no es correcto.', 403);
@@ -826,7 +831,9 @@ try {
             if (!limit($db, 'claim:' . $ip, 10, 3600)) {
                 fail('Demasiados intentos. Esperá una hora.', 429);
             }
-            if ($db->query('SELECT 1 FROM users WHERE is_admin=1')->fetch()) {
+            // Solo cuentan los administradores que pueden entrar (con Google). Si la administración era una cuenta
+            // vieja con contraseña, el dueño la recupera con el código y después le da permiso a esa cuenta.
+            if ($db->query("SELECT 1 FROM users WHERE is_admin=1 AND google_sub != ''")->fetch()) {
                 fail('La administración ya está activada. Pedile acceso a un administrador.', 409);
             }
             if (!admin_code_ok($config, $input['code'] ?? '')) {
@@ -877,7 +884,8 @@ try {
             respond(['items' => array_map(fn($u) => [...$u, 'photo' => photo_url($u['photo'])], query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked,
                     u.blocked_until, u.blocked_reason, u.google_sub != '' AS google, u.google_link_ok,
                     (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id AND t.status!='deleted') AS trips,
-                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total, u.photo, " . rating_sql('u.id', 'user') . "
+                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total, u.photo, " . rating_sql('u.id', 'user') . ', '
+                    . rating_sql('u.id', 'driver', 'driver') . ', ' . rating_sql('u.id', 'rider', 'rider') . "
                 FROM users u ORDER BY u.created DESC LIMIT 1000")->fetchAll())]);
 
         case 'GET admin_settings':

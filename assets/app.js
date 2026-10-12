@@ -10,7 +10,10 @@ const NEW_ACCOUNT_DAYS = 7;   // en Calificaciones se marcan las hechas con cuen
 const ROLE_TEXT = { driver: 'como conductor', rider: 'como acompañante' };
 const REASONS = { precio: 'Cobra un precio o parece un negocio', datos: 'Teléfono o datos falsos', ofensivo: 'Ofensivo o peligroso', otro: 'Otro motivo' };
 
-const state = { csrf: '', today: '', user: null, googleClientId: '', trips: [], mine: [], tripsLoaded: false, next: 'viajes', returnTo: '' };
+const state = {
+  csrf: '', today: '', user: null, googleClientId: '', sessionLoaded: false, fixingSetup: false,
+  trips: [], mine: [], tripsLoaded: false, next: 'viajes', returnTo: '',
+};
 const $ = (selector, root = document) => root.querySelector(selector);
 
 async function api(action, { body, query = '', retried = false } = {}) {
@@ -43,6 +46,7 @@ async function loadSession() {
   state.today = session.today;
   state.user = session.user;
   state.googleClientId = session.googleClientId || '';
+  state.sessionLoaded = true;
 }
 
 /* Fechas */
@@ -328,10 +332,19 @@ function loadGoogleScript() {
 
 async function renderGoogle() {
   const box = $('#google-box');
-  // Sin el ID de cliente nadie puede entrar: se muestra el formulario para que el dueño lo cargue.
-  $('#setup-form').hidden = Boolean(state.user || state.googleClientId);
-  $('#google-off').hidden = true;
-  box.hidden = !state.googleClientId || Boolean(state.user);
+  const guest = !state.user;
+  const configured = Boolean(state.googleClientId);
+  // Sin el ID de cliente nadie puede entrar: se muestra el formulario para que el dueño lo cargue. Si ya hay
+  // uno pero está mal, el dueño lo corrige desde "¿Sos el dueño…?". Si no se pudo cargar la sesión, no se sabe.
+  const setup = $('#setup-form');
+  setup.hidden = !guest || !state.sessionLoaded || (configured && !state.fixingSetup);
+  $('#setup-title').textContent = configured ? 'Cambiar el ID de cliente de Google' : 'Falta configurar el ingreso';
+  $('#setup-text').textContent = configured
+    ? 'Si el botón de Google no funciona, puede que el ID de cliente esté mal copiado. Cargá el correcto junto con el código de administración.'
+    : 'Todavía nadie puede entrar: el sitio necesita el ID de cliente de Google. Si sos el dueño, cargalo acá junto con el código de administración.';
+  $('#setup-link').hidden = !guest || !configured || !setup.hidden;
+  $('#google-off').hidden = !guest || state.sessionLoaded;
+  box.hidden = !guest || !configured;
   if (box.hidden) return;
   try {
     await loadGoogleScript();
@@ -344,10 +357,12 @@ async function renderGoogle() {
     window.google.accounts.id.initialize({ client_id: state.googleClientId, callback: googleSignIn, ux_mode: 'popup', context: 'signin' });
     state.googleReadyFor = state.googleClientId;
   }
-  const target = $('#google-button');
-  window.google.accounts.id.renderButton(target, {
+  // Google dibuja el botón con un ancho fijo: el del espacio libre dentro de la tarjeta (sin el relleno).
+  const style = getComputedStyle(box);
+  const inner = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  window.google.accounts.id.renderButton($('#google-button'), {
     type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill', locale: 'es',
-    width: Math.max(200, Math.min(360, box.clientWidth || 320)),
+    width: Math.floor(Math.max(200, Math.min(360, inner || 300))),
   });
 }
 
@@ -372,6 +387,7 @@ async function setupGoogle(event) {
   await busy(form, async () => {
     const result = await api('setup', { body: { code: form.code.value, googleClientId: form.googleClientId.value.trim() } });
     state.googleClientId = result.googleClientId;
+    state.fixingSetup = false;
     form.reset();
     // Después de entrar, se sigue con la administración (se activa con el mismo código).
     state.next = 'admin';
@@ -551,12 +567,21 @@ function renderAdminTrips() {
   $('#admin-trips').replaceChildren(...(rows.length ? rows : [emptyRow('No hay viajes que coincidan.')]));
 }
 
+const lowRated = (average, count) => Number(count) > 0 && Number(average) < 3;
 const ROLE_FILTERS = {
   drivers: (u) => Number(u.trips_total) > 0,
   riders: (u) => Number(u.trips_total) === 0,
   suspended: (u) => Number(u.blocked) === 1,
-  lowrated: (u) => Number(u.user_ratings) > 0 && Number(u.user_rating) < 3,
+  lowrated: (u) => lowRated(u.driver_rating, u.driver_ratings) || lowRated(u.rider_rating, u.rider_ratings),
 };
+
+// Promedios de un usuario como conductor y como acompañante (solo los que tiene).
+function userRatings(u) {
+  const parts = [['Conductor', u.driver_rating, u.driver_ratings], ['Acompañante', u.rider_rating, u.rider_ratings]]
+    .filter(([, , count]) => Number(count) > 0)
+    .flatMap(([label, average, count], i) => [i ? ' · ' : '', `${label} `, ratingBadge(Number(average), Number(count))]);
+  return parts.length ? parts : [ratingBadge(null, 0)];
+}
 const until = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const suspendedBadge = (u) => badge(Number(u.blocked_until)
   ? `Suspendido hasta el ${until.format(new Date(u.blocked_until * 1000)).replace(/\./g, '')}`
@@ -581,7 +606,7 @@ function renderUsers() {
         blocked && suspendedBadge(u), self && badge('Vos', 'off')),
       el('p', { className: 'item-title' }, avatar(u.photo, u.name, 'xs'), u.name),
       el('p', { className: 'item-meta' }, `${u.email} · desde el ${when(u.created)} · ${trips === 1 ? '1 viaje' : `${trips} viajes`} · `,
-        ratingBadge(u.user_rating === null ? null : Number(u.user_rating), Number(u.user_ratings))),
+        ...userRatings(u)),
       blocked && u.blocked_reason && el('p', { className: 'item-reason', textContent: `Motivo: ${u.blocked_reason}` }),
       el('div', { className: 'item-actions' },
         button('Ver viajes', () => showTripsOf(u.email)),
@@ -994,6 +1019,11 @@ async function init() {
   $('#search').addEventListener('reset', () => setTimeout(renderTrips));
   $('#publish').addEventListener('submit', publish);
   $('#setup-form').addEventListener('submit', setupGoogle);
+  $('#setup-show').addEventListener('click', () => {
+    state.fixingSetup = true;
+    renderGoogle();
+    $('#setup-form [name=code]').focus();
+  });
   $('#logout').addEventListener('click', logout);
   $('#report-form').addEventListener('submit', sendReport);
   $('#report-cancel').addEventListener('click', () => $('#report-dlg').close());

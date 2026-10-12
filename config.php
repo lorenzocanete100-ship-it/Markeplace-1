@@ -20,7 +20,7 @@ return [
     // cliente no va acá: la primera vez se carga en la página "Entrar" con el código de
     // administración, y después se cambia en Administrar → Ajustes.
     'google_certs_url' => getenv('ASIENTO_GOOGLE_CERTS_URL') ?: 'https://www.googleapis.com/oauth2/v3/certs',
-    // De dónde se acepta traer la foto de una cuenta de Google ("Usar mi foto de Google").
+    // De dónde se acepta traer la foto de una cuenta de Google (la de su perfil, que se pone sola).
     'google_picture_pattern' => getenv('ASIENTO_GOOGLE_PICTURE_PATTERN') ?: '#^https://lh[0-9]\.googleusercontent\.com/#',
 
     'timezone' => 'America/Argentina/Buenos_Aires',

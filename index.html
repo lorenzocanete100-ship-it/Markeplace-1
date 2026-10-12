@@ -7,8 +7,8 @@
 <meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
 <meta name="theme-color" content="#17409a">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/styles.css?v=12">
-<script src="assets/app.js?v=12" defer></script>
+<link rel="stylesheet" href="assets/styles.css?v=13">
+<script src="assets/app.js?v=13" defer></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true">
@@ -301,10 +301,11 @@
         <p class="form-error" id="google-error" role="alert" hidden></p>
         <p class="muted small">Tu nombre y tu foto de Google se usan para tu perfil (después los podés cambiar o quitar). Tu correo no se muestra a nadie.</p>
       </div>
-      <p class="card note" id="google-off" role="alert" hidden>No se pudo cargar el botón de Google. Revisá tu conexión y recargá la página.</p>
+      <p class="card note" id="google-off" role="alert" hidden>No se pudo cargar el ingreso. Revisá tu conexión y recargá la página.</p>
+      <p class="setup-link" id="setup-link" hidden><button type="button" class="link-muted" id="setup-show">¿Sos el dueño del sitio y el botón de Google no funciona?</button></p>
       <form class="card form" id="setup-form" novalidate hidden>
-        <h2>Falta configurar el ingreso</h2>
-        <p>Todavía nadie puede entrar: el sitio necesita el ID de cliente de Google. Si sos el dueño, cargalo acá junto con el código de administración.</p>
+        <h2 id="setup-title">Falta configurar el ingreso</h2>
+        <p id="setup-text">Todavía nadie puede entrar: el sitio necesita el ID de cliente de Google. Si sos el dueño, cargalo acá junto con el código de administración.</p>
         <label>Código de administración<input name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX"></label>
         <label>ID de cliente de Google<input name="googleClientId" required autocomplete="off" spellcheck="false" placeholder="1234567890-abc123.apps.googleusercontent.com"></label>
         <div class="google-help"></div>
@@ -330,7 +331,7 @@
     <summary>¿Dónde consigo el ID de cliente?</summary>
     <ol>
       <li>Entrá a <strong>console.cloud.google.com</strong> con tu cuenta de Google y creá un proyecto (por ejemplo "Asiento Vacío").</li>
-      <li>Configurá la pantalla de consentimiento de OAuth: elegí público <strong>Externo</strong>, poné el nombre de la app y tu correo de contacto, y publicala.</li>
+      <li>Configurá la pantalla de consentimiento de OAuth: elegí público <strong>Externo</strong>, poné el nombre de la app y tu correo de contacto, y tocá <strong>Publicar app</strong> (si queda "en prueba", solo pueden entrar los usuarios de prueba que cargues).</li>
       <li>En <strong>Credenciales → Crear credenciales → ID de cliente de OAuth</strong>, elegí <strong>Aplicación web</strong>.</li>
       <li>En <strong>Orígenes autorizados de JavaScript</strong> agregá <span class="site-origins">la dirección de tu sitio, con y sin <code>www.</code></span></li>
       <li>Copiá el <strong>ID de cliente</strong> (termina en <code>.apps.googleusercontent.com</code>) y pegalo acá.</li>
