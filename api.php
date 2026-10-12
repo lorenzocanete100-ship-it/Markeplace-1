@@ -22,9 +22,8 @@ header('Referrer-Policy: strict-origin-when-cross-origin');
 const PRICE_WORDS = '/\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/iu';
 const MAX_DAYS_AHEAD = 180;
 const SESSION_DAYS = 7;
+const MAX_COMMENT = 300;
 const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
-const VERIFY_PHOTOS = ['front', 'back', 'selfie'];
-const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 const SUSPEND_DAYS = [1, 7, 30, 0];  // 0: sin fecha, hasta que la administración la levante
 const SUSPEND_REASONS = [
     'precio' => 'Cobró un precio por el viaje o lo usó como negocio.',
@@ -33,12 +32,8 @@ const SUSPEND_REASONS = [
     'denuncias' => 'Recibió varias denuncias.',
     'otro' => 'No cumplió las reglas del sitio.',
 ];
-const REJECT_REASONS = [
-    'ilegible' => 'Las fotos no se ven bien.',
-    'datos' => 'Los datos del DNI no coinciden con el nombre de tu cuenta.',
-    'selfie' => 'En la selfie no se ve tu cara junto al DNI.',
-    'otro' => 'No pudimos confirmar tu identidad.',
-];
+const GOOGLE_ISSUERS = ['accounts.google.com', 'https://accounts.google.com'];
+const GOOGLE_CLIENT_ID = '/^[0-9]{5,30}-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$/';
 
 function respond(array $data, int $code = 200): never
 {
@@ -107,26 +102,42 @@ function connect(string $dir): PDO
           reason TEXT NOT NULL, details TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT \'open\', created INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created);
-        CREATE TABLE IF NOT EXISTS verifications (
-          id TEXT PRIMARY KEY, user TEXT NOT NULL REFERENCES users(id),
-          status TEXT NOT NULL DEFAULT \'pending\', reason TEXT NOT NULL DEFAULT \'\',
-          files TEXT NOT NULL DEFAULT \'[]\', created INTEGER NOT NULL, decided INTEGER NOT NULL DEFAULT 0);
-        CREATE INDEX IF NOT EXISTS idx_verifications_user ON verifications(user, created);
-        CREATE INDEX IF NOT EXISTS idx_verifications_status ON verifications(status, created);
+        CREATE TABLE IF NOT EXISTS ratings (
+          id TEXT PRIMARY KEY, rater TEXT NOT NULL REFERENCES users(id), rated TEXT NOT NULL REFERENCES users(id),
+          stars INTEGER NOT NULL, comment TEXT NOT NULL DEFAULT \'\',
+          created INTEGER NOT NULL, updated INTEGER NOT NULL, UNIQUE(rater, rated));
+        CREATE INDEX IF NOT EXISTS idx_ratings_rated ON ratings(rated, updated);
+        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, hits INTEGER NOT NULL, expires INTEGER NOT NULL);
     ');
     // Bases creadas con versiones anteriores no tienen estas columnas.
     $columns = array_column($pdo->query('PRAGMA table_info(users)')->fetchAll(), 'name');
     $added = [
         'is_admin' => 'INTEGER NOT NULL DEFAULT 0', 'blocked' => 'INTEGER NOT NULL DEFAULT 0',
-        'verified' => 'INTEGER NOT NULL DEFAULT 0', 'verified_at' => 'INTEGER NOT NULL DEFAULT 0',
         'blocked_until' => 'INTEGER NOT NULL DEFAULT 0', 'blocked_reason' => "TEXT NOT NULL DEFAULT ''",
+        'google_sub' => "TEXT NOT NULL DEFAULT ''",
     ];
     foreach ($added as $column => $type) {
         if (!in_array($column, $columns, true)) {
             $pdo->exec("ALTER TABLE users ADD COLUMN $column $type");
         }
     }
+    $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_sub) WHERE google_sub != ''");
+
+    // La verificación con DNI se quitó: si quedaron fotos o solicitudes de una versión anterior, se borran.
+    if (is_dir("$dir/verificaciones")) {
+        foreach (glob("$dir/verificaciones/*") ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir("$dir/verificaciones");
+    }
+    if ($pdo->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='verifications'")->fetch()) {
+        $pdo->exec('DROP TABLE verifications');
+        if (in_array('verified', $columns, true)) {
+            $pdo->exec('UPDATE users SET verified=0, verified_at=0');
+        }
+    }
+
     // Las suspensiones con plazo se levantan solas cuando se cumple la fecha.
     $now = time();
     if ($pdo->query("SELECT 1 FROM users WHERE blocked=1 AND blocked_until>0 AND blocked_until<=$now LIMIT 1")->fetch()) {
@@ -181,55 +192,135 @@ function query(PDO $db, string $sql, array $params = []): PDOStatement
     return $stmt;
 }
 
+function setting(PDO $db, string $key): string
+{
+    return (string)(query($db, 'SELECT value FROM settings WHERE key=?', [$key])->fetchColumn() ?: '');
+}
+
+// Promedio y cantidad de calificaciones de una cuenta. No cuentan las de cuentas suspendidas.
+function rating_sql(string $who, string $as): string
+{
+    $from = "FROM ratings r JOIN users w ON w.id = r.rater WHERE r.rated = $who AND w.blocked = 0";
+    return "(SELECT ROUND(AVG(r.stars), 1) $from) AS {$as}_rating, (SELECT COUNT(*) $from) AS {$as}_ratings";
+}
+
 function load_user(PDO $db, string $id): ?array
 {
-    return query($db, 'SELECT id,email,name,is_admin,blocked,verified,verified_at,created FROM users WHERE id=?', [$id])->fetch() ?: null;
+    return query($db, 'SELECT id,email,name,is_admin,blocked,google_sub,created FROM users WHERE id=?', [$id])->fetch() ?: null;
 }
 
 function public_user(?array $user): ?array
 {
     return $user ? [
         'id' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'created' => (int)$user['created'],
-        'admin' => (int)$user['is_admin'] === 1, 'verified' => (int)$user['verified'] === 1, 'verifiedAt' => (int)$user['verified_at'],
+        'admin' => (int)$user['is_admin'] === 1, 'google' => $user['google_sub'] !== '',
     ] : null;
 }
 
-// Guarda una foto de verificación como JPEG nuevo: al recodificarla se pierden los
-// datos ocultos de la cámara (como la ubicación GPS). Devuelve null si no es una foto válida.
-function store_photo(array $file, string $folder): ?string
+function suspended(array $account): never
 {
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name']) || $file['size'] > MAX_PHOTO_BYTES) {
-        return null;
-    }
-    $info = @getimagesize($file['tmp_name']);
-    if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true) || $info[0] * $info[1] > 30_000_000) {
-        return null;
-    }
-    $image = @imagecreatefromstring((string)file_get_contents($file['tmp_name']));
-    if (!$image) {
-        return null;
-    }
-    if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
-        $turn = [3 => 180, 6 => -90, 8 => 90][(int)(@exif_read_data($file['tmp_name'])['Orientation'] ?? 1)] ?? 0;
-        if ($turn) {
-            $image = imagerotate($image, $turn, 0);
-        }
-    }
-    $scale = min(1, 1600 / max(imagesx($image), imagesy($image)));
-    if ($scale < 1) {
-        $image = imagescale($image, (int)round(imagesx($image) * $scale), (int)round(imagesy($image) * $scale));
-    }
-    $name = bin2hex(random_bytes(16)) . '.jpg';
-    return imagejpeg($image, "$folder/$name", 82) ? $name : null;
+    $until = (int)$account['blocked_until'];
+    fail('Tu cuenta está suspendida' . ($until ? date(' \h\a\s\t\a \e\l d/m/Y \a \l\a\s H:i', $until) : '') . '.'
+        . ($account['blocked_reason'] !== '' ? ' Motivo: ' . $account['blocked_reason'] : ''), 403);
 }
 
-function delete_photos(string $folder, string $json): void
+function sign_in(PDO $db, string $uid): never
 {
-    foreach (json_decode($json, true) ?: [] as $name) {
-        if (is_string($name) && preg_match('/^[a-f0-9]{32}\.jpg$/', $name)) {
-            @unlink("$folder/$name");
+    session_regenerate_id(true);
+    $_SESSION = ['uid' => $uid, 'csrf' => bin2hex(random_bytes(32))];
+    respond(['csrf' => $_SESSION['csrf'], 'user' => public_user(load_user($db, $uid))]);
+}
+
+function b64url(string $value): string|false
+{
+    return base64_decode(strtr($value, '-_', '+/'), true);
+}
+
+function der(string $tag, string $value): string
+{
+    $length = strlen($value);
+    $bytes = ltrim(pack('N', $length), "\0");
+    return $tag . ($length < 128 ? chr($length) : chr(0x80 | strlen($bytes)) . $bytes) . $value;
+}
+
+// Arma la clave pública (PEM) a partir de la clave RSA que publica Google en formato JWK.
+function jwk_pem(array $jwk): ?string
+{
+    $n = b64url((string)($jwk['n'] ?? ''));
+    $e = b64url((string)($jwk['e'] ?? ''));
+    if (!$n || !$e) {
+        return null;
+    }
+    $integer = fn(string $x) => der("\x02", ord($x[0]) > 0x7f ? "\0" . $x : $x);
+    $algorithm = der("\x30", der("\x06", "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01") . "\x05\x00");
+    $spki = der("\x30", $algorithm . der("\x03", "\0" . der("\x30", $integer($n) . $integer($e))));
+    return "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($spki), 64, "\n") . "-----END PUBLIC KEY-----\n";
+}
+
+// Claves públicas de Google, guardadas un rato para no pedirlas en cada ingreso.
+function google_keys(string $dir, string $url, bool $refresh): array
+{
+    $file = "$dir/google-certs.json";
+    $cache = is_file($file) ? json_decode((string)file_get_contents($file), true) : null;
+    $cache = is_array($cache) && is_array($cache['keys'] ?? null) ? $cache : null;
+    $now = time();
+    // Aunque pidan una clave desconocida, se vuelve a consultar a Google como mucho cada 5 minutos.
+    if ($cache && $cache['expires'] > $now && (!$refresh || $cache['fetched'] > $now - 300)) {
+        return $cache['keys'];
+    }
+    $body = @file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 8]]));
+    $jwks = is_string($body) ? json_decode($body, true) : null;
+    if (!is_array($jwks['keys'] ?? null)) {
+        return $cache['keys'] ?? [];
+    }
+    $maxAge = 3600;
+    foreach ($http_response_header ?? [] as $line) {
+        if (preg_match('/^cache-control:.*max-age=(\d+)/i', $line, $m)) {
+            $maxAge = max(300, min(86400, (int)$m[1]));
         }
     }
+    @file_put_contents($file, json_encode(['fetched' => $now, 'expires' => $now + $maxAge, 'keys' => $jwks['keys']]), LOCK_EX);
+    return $jwks['keys'];
+}
+
+// Comprueba el comprobante que entrega el botón de Google: firma, destinatario, vencimiento y correo confirmado.
+function google_identity(string $jwt, string $clientId, string $dir, string $certsUrl): ?array
+{
+    $parts = explode('.', $jwt);
+    if (count($parts) !== 3) {
+        return null;
+    }
+    [$head, $body, $signature] = $parts;
+    $header = json_decode((string)b64url($head), true);
+    $claims = json_decode((string)b64url($body), true);
+    $signature = b64url($signature);
+    if (!is_array($header) || !is_array($claims) || !is_string($signature)
+        || ($header['alg'] ?? '') !== 'RS256' || !is_string($header['kid'] ?? null)) {
+        return null;
+    }
+    $pem = null;
+    foreach ([false, true] as $refresh) {  // si Google cambió sus claves, se vuelven a pedir una vez
+        foreach (google_keys($dir, $certsUrl, $refresh) as $key) {
+            if (is_array($key) && ($key['kid'] ?? null) === $header['kid'] && ($key['kty'] ?? '') === 'RSA') {
+                $pem = jwk_pem($key);
+            }
+        }
+        if ($pem) {
+            break;
+        }
+    }
+    if (!$pem || openssl_verify("$head.$body", $signature, $pem, OPENSSL_ALGO_SHA256) !== 1) {
+        return null;
+    }
+    $now = time();
+    $valid = in_array($claims['iss'] ?? null, GOOGLE_ISSUERS, true)
+        && ($claims['aud'] ?? null) === $clientId
+        && is_int($claims['exp'] ?? null) && $claims['exp'] > $now - 60
+        && is_int($claims['iat'] ?? null) && $claims['iat'] < $now + 300
+        && is_string($claims['sub'] ?? null) && preg_match('/^[A-Za-z0-9_-]{1,255}$/', $claims['sub'])
+        && ($claims['email_verified'] ?? false) === true
+        && is_string($claims['email'] ?? null) && filter_var($claims['email'], FILTER_VALIDATE_EMAIL);
+    return $valid ? $claims : null;
 }
 
 try {
@@ -265,14 +356,15 @@ try {
         $user = null;
     }
     $isAdmin = $user && (int)$user['is_admin'] === 1;
-    $photos = "$dir/verificaciones";
     $serialize = function (array $row) use ($user, $isAdmin): array {
         $mine = $user && $row['owner'] === $user['id'];
         $row['driver_id'] = $row['owner'];
-        $row['driver_verified'] = (int)($row['driver_verified'] ?? 0) === 1;
+        $row['driver_rating'] = $row['driver_rating'] === null ? null : (float)$row['driver_rating'];
+        $row['driver_ratings'] = (int)$row['driver_ratings'];
         unset($row['owner']);
         return [...$row, 'mine' => $mine, 'canDelete' => $mine || $isAdmin];
     };
+    $tripsSql = 'SELECT t.*, ' . rating_sql('t.owner', 'driver') . ' FROM trips t JOIN users u ON u.id=t.owner';
     $requireUser = function () use ($user): array {
         return $user ?? fail('Iniciá sesión.', 401);
     };
@@ -299,7 +391,8 @@ try {
             respond(['ok' => true]);
 
         case 'GET session':
-            respond(['csrf' => $_SESSION['csrf'], 'today' => today(), 'user' => public_user($user)]);
+            respond(['csrf' => $_SESSION['csrf'], 'today' => today(), 'user' => public_user($user),
+                'googleClientId' => setting($db, 'google_client_id')]);
 
         case 'POST logout':
             $_SESSION = [];
@@ -329,21 +422,61 @@ try {
                 } catch (PDOException) {
                     fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
                 }
-            } else {
-                $row = query($db, 'SELECT id,password,blocked,blocked_until,blocked_reason FROM users WHERE email=?', [$email])->fetch();
-                if (!$row || !password_verify($password, $row['password'])) {
-                    fail('Correo o contraseña incorrectos.', 401);
-                }
-                if ((int)$row['blocked'] === 1) {
-                    $until = (int)$row['blocked_until'];
-                    fail('Tu cuenta está suspendida' . ($until ? date(' \h\a\s\t\a \e\l d/m/Y \a \l\a\s H:i', $until) : '') . '.'
-                        . ($row['blocked_reason'] !== '' ? ' Motivo: ' . $row['blocked_reason'] : ''), 403);
-                }
-                $uid = $row['id'];
+                sign_in($db, $uid);
             }
-            session_regenerate_id(true);
-            $_SESSION = ['uid' => $uid, 'csrf' => bin2hex(random_bytes(32))];
-            respond(['csrf' => $_SESSION['csrf'], 'user' => public_user(load_user($db, $uid))]);
+            $row = query($db, 'SELECT id,password,google_sub,blocked,blocked_until,blocked_reason FROM users WHERE email=?', [$email])->fetch();
+            if (!$row || !password_verify($password, $row['password'])) {
+                fail($row && $row['google_sub'] !== ''
+                    ? 'Esta cuenta entra con Google: tocá "Continuar con Google".'
+                    : 'Correo o contraseña incorrectos.', 401);
+            }
+            if ((int)$row['blocked'] === 1) {
+                suspended($row);
+            }
+            sign_in($db, $row['id']);
+
+        case 'POST google':
+            $clientId = setting($db, 'google_client_id');
+            if ($clientId === '') {
+                fail('El ingreso con Google no está activado.', 404);
+            }
+            if (!limit($db, 'google:' . $ip, 30, 900)) {
+                fail('Demasiados intentos. Esperá 15 minutos.', 429);
+            }
+            $token = $input['credential'] ?? '';
+            $claims = is_string($token) && strlen($token) < 8192
+                ? google_identity($token, $clientId, $dir, $config['google_certs_url'])
+                : null;
+            if (!$claims) {
+                fail('No pudimos confirmar tu cuenta de Google. Probá de nuevo.', 401);
+            }
+            $email = strtolower($claims['email']);
+            $fields = 'SELECT id,google_sub,blocked,blocked_until,blocked_reason FROM users';
+            $account = query($db, "$fields WHERE google_sub=?", [$claims['sub']])->fetch()
+                ?: query($db, "$fields WHERE email=?", [$email])->fetch();
+            if ($account) {
+                if ($account['google_sub'] !== '' && $account['google_sub'] !== $claims['sub']) {
+                    fail('Ese correo ya está unido a otra cuenta de Google.', 409);
+                }
+                if ((int)$account['blocked'] === 1) {
+                    suspended($account);
+                }
+                if ($account['google_sub'] === '') {
+                    // Google confirmó que el correo es suyo. La contraseña anterior deja de servir, por si
+                    // otra persona hubiera creado la cuenta con ese correo antes que el dueño.
+                    query($db, 'UPDATE users SET google_sub=?, password=? WHERE id=?',
+                        [$claims['sub'], password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), $account['id']]);
+                }
+                sign_in($db, $account['id']);
+            }
+            $name = mb_substr(clean($claims['name'] ?? ''), 0, 80);
+            if (mb_strlen($name) < 2) {
+                $name = mb_substr(explode('@', $email)[0], 0, 80);
+            }
+            $uid = bin2hex(random_bytes(16));
+            query($db, 'INSERT INTO users(id,email,name,password,created,google_sub) VALUES (?,?,?,?,?,?)',
+                [$uid, $email, $name, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), time(), $claims['sub']]);
+            sign_in($db, $uid);
 
         case 'GET trips':
             if (($_GET['mine'] ?? '') === '1') {
@@ -351,12 +484,12 @@ try {
                     fail('Iniciá sesión.', 401);
                 }
                 // Primero los próximos viajes, al final los que ya pasaron.
-                $stmt = query($db, "SELECT t.*, u.verified AS driver_verified FROM trips t JOIN users u ON u.id=t.owner
-                    WHERE t.owner=? AND t.status!='deleted' ORDER BY t.day < ?, t.day, t.hour LIMIT 300", [$user['id'], today()]);
+                $stmt = query($db, "$tripsSql WHERE t.owner=? AND t.status!='deleted' ORDER BY t.day < ?, t.day, t.hour LIMIT 300",
+                    [$user['id'], today()]);
             } else {
                 // Los viajes pasados desaparecen solos; los completos quedan ocultos hasta que el conductor los reabra.
-                $stmt = query($db, "SELECT t.*, u.verified AS driver_verified FROM trips t JOIN users u ON u.id=t.owner
-                    WHERE t.status='active' AND t.day>=? AND u.blocked=0 ORDER BY t.day, t.hour LIMIT 300", [today()]);
+                $stmt = query($db, "$tripsSql WHERE t.status='active' AND t.day>=? AND u.blocked=0 ORDER BY t.day, t.hour LIMIT 300",
+                    [today()]);
             }
             respond(['items' => array_map($serialize, $stmt->fetchAll())]);
 
@@ -365,14 +498,12 @@ try {
                 fail('Iniciá sesión para publicar un viaje.', 401);
             }
             $v = [];
-            foreach (['origin', 'destination', 'day', 'hour', 'driver', 'phone', 'vehicle'] as $k) {
+            foreach (['origin', 'destination', 'day', 'hour', 'phone', 'vehicle'] as $k) {
                 $v[$k] = clean($input[$k] ?? '');
             }
             $v['notes'] = multiline($input['notes'] ?? '');
-            if ((int)$user['verified'] === 1) {
-                // Con el perfil verificado, el viaje va con el nombre que se verificó.
-                $v['driver'] = $user['name'];
-            }
+            // Las calificaciones son de la cuenta, así que el viaje sale con el nombre de la cuenta.
+            $v['driver'] = $user['name'];
             if (($input['confirmPrivate'] ?? null) !== true || ($input['confirmPhone'] ?? null) !== true) {
                 fail('Confirmá que sos un particular que comparte gastos y que aceptás mostrar tu teléfono.');
             }
@@ -393,9 +524,6 @@ try {
             $seats = filter_var($input['seats'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 8]]);
             if ($seats === false) {
                 fail('Podés ofrecer de 1 a 8 asientos.');
-            }
-            if (!length_between($v['driver'], 2, 60)) {
-                fail('Ingresá tu nombre como conductor.');
             }
             $digits = preg_replace('/\D/', '', $v['phone']);
             if (!preg_match('/^[0-9+()\-. ]{8,25}$/', $v['phone']) || strlen($digits) < 10 || strlen($digits) > 15) {
@@ -455,60 +583,54 @@ try {
             respond(['ok' => true], 201);
 
         case 'GET profile':
-            $row = query($db, 'SELECT id,name,verified,verified_at,created,blocked FROM users WHERE id=?', [(string)($_GET['id'] ?? '')])->fetch();
+            $row = query($db, 'SELECT u.id, u.name, u.created, u.blocked, ' . rating_sql('u.id', 'user') . ' FROM users u WHERE u.id=?',
+                [(string)($_GET['id'] ?? '')])->fetch();
             if (!$row || (int)$row['blocked'] === 1) {
                 fail('Perfil no encontrado.', 404);
             }
-            $trips = query($db, "SELECT t.*, u.verified AS driver_verified FROM trips t JOIN users u ON u.id=t.owner
-                WHERE t.owner=? AND t.status='active' AND t.day>=? ORDER BY t.day, t.hour LIMIT 50", [$row['id'], today()])->fetchAll();
+            $reviews = query($db, 'SELECT r.stars, r.comment, r.updated, w.id AS rater_id, w.name AS rater_name
+                FROM ratings r JOIN users w ON w.id=r.rater WHERE r.rated=? AND w.blocked=0 ORDER BY r.updated DESC LIMIT 50',
+                [$row['id']])->fetchAll();
+            $mine = $user ? query($db, 'SELECT stars, comment FROM ratings WHERE rater=? AND rated=?', [$user['id'], $row['id']])->fetch() : null;
+            $trips = query($db, "$tripsSql WHERE t.owner=? AND t.status='active' AND t.day>=? ORDER BY t.day, t.hour LIMIT 50",
+                [$row['id'], today()])->fetchAll();
             respond([
                 'profile' => ['id' => $row['id'], 'name' => $row['name'], 'created' => (int)$row['created'],
-                    'verified' => (int)$row['verified'] === 1, 'verifiedAt' => (int)$row['verified_at']],
+                    'rating' => $row['user_rating'] === null ? null : (float)$row['user_rating'], 'ratings' => (int)$row['user_ratings']],
+                'reviews' => $reviews,
+                'mine' => $mine ?: null,
                 'trips' => array_map($serialize, $trips),
             ]);
 
-        case 'GET verification':
+        case 'POST rate':
             $me = $requireUser();
-            $request = query($db, 'SELECT status,reason,created,decided FROM verifications WHERE user=? ORDER BY created DESC LIMIT 1', [$me['id']])->fetch();
-            respond(['user' => public_user($me), 'request' => $request ?: null]);
+            $target = query($db, 'SELECT id, blocked FROM users WHERE id=?', [(string)($input['user'] ?? '')])->fetch();
+            if (!$target || (int)$target['blocked'] === 1) {
+                fail('Perfil no encontrado.', 404);
+            }
+            if ($target['id'] === $me['id']) {
+                fail('No podés calificarte a vos mismo.');
+            }
+            $stars = $input['stars'] ?? null;
+            if (!is_int($stars) || $stars < 1 || $stars > 5) {
+                fail('Elegí de 1 a 5 estrellas.');
+            }
+            $comment = clean($input['comment'] ?? '');
+            if (mb_strlen($comment) > MAX_COMMENT) {
+                fail('El comentario puede tener hasta ' . MAX_COMMENT . ' letras.');
+            }
+            if (!limit($db, 'rate:' . $me['id'], 30, 86400)) {
+                fail('Hiciste muchas calificaciones hoy. Probá mañana.', 429);
+            }
+            // Una sola calificación por persona: si ya había una, se reemplaza.
+            query($db, 'INSERT INTO ratings(id,rater,rated,stars,comment,created,updated) VALUES (?,?,?,?,?,?,?)
+                ON CONFLICT(rater, rated) DO UPDATE SET stars=excluded.stars, comment=excluded.comment, updated=excluded.updated',
+                [bin2hex(random_bytes(16)), $me['id'], $target['id'], $stars, $comment, time(), time()]);
+            respond(['ok' => true]);
 
-        case 'POST verify_request':
+        case 'POST rate_delete':
             $me = $requireUser();
-            if ((int)$me['verified'] === 1) {
-                fail('Tu perfil ya está verificado.', 409);
-            }
-            if (query($db, "SELECT 1 FROM verifications WHERE user=? AND status='pending'", [$me['id']])->fetch()) {
-                fail('Ya mandaste tus fotos: están en revisión.', 409);
-            }
-            if (($_POST['consent'] ?? '') !== '1') {
-                fail('Aceptá que la administración vea tus fotos para verificar tu perfil.');
-            }
-            if (!limit($db, 'verify:' . $me['id'], 5, 86400)) {
-                fail('Hiciste muchos intentos hoy. Probá mañana.', 429);
-            }
-            if (!is_dir($photos) && !@mkdir($photos, 0700, true)) {
-                fail('El servidor no puede guardar las fotos.', 503);
-            }
-            $saved = [];
-            foreach (VERIFY_PHOTOS as $field) {
-                $name = isset($_FILES[$field]) && is_array($_FILES[$field]) ? store_photo($_FILES[$field], $photos) : null;
-                if ($name === null) {
-                    delete_photos($photos, json_encode($saved));
-                    fail('Subí las tres fotos (DNI de frente, DNI de dorso y selfie con el DNI) en JPG, PNG o WebP, de hasta 10 MB cada una.');
-                }
-                $saved[] = $name;
-            }
-            query($db, 'INSERT INTO verifications(id,user,files,created) VALUES (?,?,?,?)',
-                [bin2hex(random_bytes(16)), $me['id'], json_encode($saved), time()]);
-            respond(['ok' => true], 201);
-
-        case 'POST verify_cancel':
-            $me = $requireUser();
-            $request = query($db, "SELECT id,files FROM verifications WHERE user=? AND status='pending'", [$me['id']])->fetch();
-            if ($request) {
-                delete_photos($photos, $request['files']);
-                query($db, "UPDATE verifications SET status='cancelled', files='[]', decided=? WHERE id=?", [time(), $request['id']]);
-            }
+            query($db, 'DELETE FROM ratings WHERE rater=? AND rated=?', [$me['id'], (string)($input['user'] ?? '')]);
             respond(['ok' => true]);
 
         case 'POST admin_claim':
@@ -535,43 +657,7 @@ try {
                 'week' => $count('SELECT COUNT(*) FROM trips WHERE created>=?', [time() - 7 * 86400]),
                 'drivers' => $count('SELECT COUNT(*) FROM users'),
                 'reports' => $count("SELECT COUNT(*) FROM reports WHERE status='open'"),
-                'verifications' => $count("SELECT COUNT(*) FROM verifications WHERE status='pending'"),
             ]);
-
-        case 'GET admin_verifications':
-            $rows = query($db, "SELECT v.id, v.created, v.files, u.id AS user, u.name, u.email, u.created AS member_since
-                FROM verifications v JOIN users u ON u.id=v.user WHERE v.status='pending' ORDER BY v.created LIMIT 200")->fetchAll();
-            respond(['items' => array_map(fn($r) => [...$r, 'files' => json_decode($r['files'], true) ?: []], $rows)]);
-
-        case 'GET admin_photo':
-            // Las fotos solo existen mientras la verificación está pendiente y solo las ve la administración.
-            $name = (string)($_GET['file'] ?? '');
-            if (!preg_match('/^[a-f0-9]{32}\.jpg$/', $name) || !is_file("$photos/$name")
-                || !query($db, "SELECT 1 FROM verifications WHERE status='pending' AND files LIKE ?", ['%"' . $name . '"%'])->fetch()) {
-                fail('Foto no encontrada.', 404);
-            }
-            header('Content-Type: image/jpeg');
-            header('Content-Length: ' . filesize("$photos/$name"));
-            readfile("$photos/$name");
-            exit;
-
-        case 'POST admin_verification':
-            $request = query($db, "SELECT id,user,files FROM verifications WHERE id=? AND status='pending'", [(string)($input['id'] ?? '')])->fetch();
-            if (!$request) {
-                fail('Esa verificación ya fue revisada.', 404);
-            }
-            $do = $input['action'] ?? '';
-            $reason = REJECT_REASONS[$input['reason'] ?? ''] ?? null;
-            if ($do !== 'approve' && !($do === 'reject' && $reason)) {
-                fail('Elegí aprobar o rechazar con un motivo.');
-            }
-            delete_photos($photos, $request['files']);
-            query($db, "UPDATE verifications SET status=?, reason=?, files='[]', decided=? WHERE id=?",
-                [$do === 'approve' ? 'approved' : 'rejected', $reason ?? '', time(), $request['id']]);
-            if ($do === 'approve') {
-                query($db, 'UPDATE users SET verified=1, verified_at=? WHERE id=?', [time(), $request['user']]);
-            }
-            respond(['ok' => true]);
 
         case 'GET admin_reports':
             respond(['items' => query($db, "SELECT r.id, r.reason, r.details, r.created,
@@ -580,17 +666,45 @@ try {
                 FROM reports r JOIN trips t ON t.id=r.trip JOIN users u ON u.id=t.owner
                 WHERE r.status='open' ORDER BY r.created DESC LIMIT 300")->fetchAll()]);
 
+        case 'GET admin_ratings':
+            respond(['items' => query($db, 'SELECT r.id, r.stars, r.comment, r.updated,
+                    w.id AS rater_id, w.name AS rater_name, w.email AS rater_email,
+                    d.id AS rated_id, d.name AS rated_name, d.email AS rated_email
+                FROM ratings r JOIN users w ON w.id=r.rater JOIN users d ON d.id=r.rated
+                ORDER BY r.updated DESC LIMIT 500')->fetchAll()]);
+
+        case 'POST admin_rating':
+            if (($input['action'] ?? '') !== 'delete') {
+                fail('Acción no válida.');
+            }
+            if (query($db, 'DELETE FROM ratings WHERE id=?', [(string)($input['id'] ?? '')])->rowCount() !== 1) {
+                fail('Esa calificación ya no existe.', 404);
+            }
+            respond(['ok' => true]);
+
         case 'GET admin_trips':
             respond(['items' => query($db, "SELECT t.*, u.email AS owner_email, u.blocked AS owner_blocked,
                     (SELECT COUNT(*) FROM reports r WHERE r.trip=t.id AND r.status='open') AS reports
                 FROM trips t JOIN users u ON u.id=t.owner ORDER BY t.created DESC LIMIT 500")->fetchAll()]);
 
         case 'GET admin_users':
-            respond(['items' => query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked, u.verified,
-                    u.blocked_until, u.blocked_reason,
+            respond(['items' => query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked,
+                    u.blocked_until, u.blocked_reason, u.google_sub != '' AS google,
                     (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id AND t.status!='deleted') AS trips,
-                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total
+                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total, " . rating_sql('u.id', 'user') . "
                 FROM users u ORDER BY u.created DESC LIMIT 1000")->fetchAll()]);
+
+        case 'GET admin_settings':
+            respond(['googleClientId' => setting($db, 'google_client_id')]);
+
+        case 'POST admin_settings':
+            $clientId = clean($input['googleClientId'] ?? '');
+            if ($clientId !== '' && !preg_match(GOOGLE_CLIENT_ID, $clientId)) {
+                fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
+            }
+            query($db, 'INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                ['google_client_id', $clientId]);
+            respond(['ok' => true]);
 
         case 'POST admin_trip':
             $trip = query($db, 'SELECT id,status FROM trips WHERE id=?', [(string)($input['id'] ?? '')])->fetch();
@@ -630,7 +744,7 @@ try {
                 respond(['ok' => true]);
             }
             $changes = ['unblock' => "blocked=0, blocked_until=0, blocked_reason=''", 'make_admin' => 'is_admin=1',
-                'remove_admin' => 'is_admin=0', 'unverify' => 'verified=0, verified_at=0'];
+                'remove_admin' => 'is_admin=0'];
             if (!isset($changes[$do])) {
                 fail('Acción no válida.');
             }
