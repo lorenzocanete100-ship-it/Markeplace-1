@@ -343,6 +343,7 @@ legend { font-weight: 700; margin-bottom: 8px; padding: 0; }
 .profile-section h2, .profile-section p { margin: 0; }
 .profile-section label { justify-self: stretch; }
 .reviews { display: grid; gap: 10px; justify-self: stretch; }
+.contacted { margin: 0; padding-left: 20px; display: grid; gap: 6px; justify-self: stretch; }
 .review { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 4px; }
 .review p { margin: 0; }
 .review-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
@@ -352,10 +353,13 @@ legend { font-weight: 700; margin-bottom: 8px; padding: 0; }
 .stars .off { color: var(--line); }
 .rate { margin-top: 16px; }
 .rate h2 { margin: 0; }
-.stars-input { display: inline-flex; flex-direction: row-reverse; justify-content: flex-end; gap: 2px; }
+.stars-input { display: inline-flex; gap: 2px; }
 .stars-input input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.stars-input label { font-size: 2.2rem; line-height: 1; color: var(--line); cursor: pointer; padding: 2px; }
-.stars-input input:checked ~ label, .stars-input label:hover, .stars-input label:hover ~ label { color: var(--star); }
+.stars-input label { position: relative; font-size: 2.2rem; line-height: 1; color: var(--muted); cursor: pointer; padding: 2px; }
+/* Se pintan la estrella elegida y las de antes; con el mouse, hasta la que está debajo. */
+.stars-input input:checked + label, .stars-input label:has(~ input:checked),
+.stars-input label:hover, .stars-input label:has(~ label:hover) { color: var(--star); }
+.stars-input label:hover ~ label { color: var(--muted); }
 .stars-input input:focus-visible + label { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
 .rate-login { padding: 14px 16px; margin-top: 16px; }
 
@@ -378,6 +382,8 @@ legend { font-weight: 700; margin-bottom: 8px; padding: 0; }
 .photo-text { display: grid; gap: 4px; min-width: 0; }
 .photo-text h1 { margin: 0; overflow-wrap: anywhere; }
 .photo-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.name-form { display: grid; gap: 8px; justify-items: start; justify-self: stretch; margin-top: 8px; }
+.name-form label { justify-self: stretch; }
 .file-btn { cursor: pointer; }
 .file-btn:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

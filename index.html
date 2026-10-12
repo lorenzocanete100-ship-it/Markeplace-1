@@ -7,8 +7,8 @@
 <meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
 <meta name="theme-color" content="#17409a">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/styles.css?v=10">
-<script src="assets/app.js?v=10" defer></script>
+<link rel="stylesheet" href="assets/styles.css?v=11">
+<script src="assets/app.js?v=11" defer></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true">
@@ -50,7 +50,7 @@
         <label>Hacia<input name="to" list="places" autocomplete="off" placeholder="Ciudad de destino"></label>
         <label>Fecha<input name="day" type="date"></label>
         <button type="reset" class="btn btn-ghost">Limpiar</button>
-        <label class="check only-rated"><input type="checkbox" name="rated"> Solo conductores con 4 estrellas o más</label>
+        <label class="check only-rated"><input type="checkbox" name="rated"> Solo conductores con 4 estrellas o más (y 3 opiniones o más)</label>
       </form>
       <datalist id="places"></datalist>
       <p class="count" id="count" aria-live="polite"></p>
@@ -71,7 +71,7 @@
         <div class="tips">
           <h3>Para viajar tranquilos</h3>
           <ul>
-            <li>Encontrense en un lugar público y contale a alguien con quién viajás.</li>
+            <li>Encuéntrense en un lugar público y contale a alguien con quién viajás.</li>
             <li>Acuerden antes el punto de encuentro, el equipaje y las paradas.</li>
             <li>Si cruzan una frontera, cada uno lleva su propia documentación.</li>
           </ul>
@@ -100,7 +100,7 @@
           </label>
         </div>
         <div class="row">
-          <label>Tu nombre<input name="driver" readonly><small>Es el de tu cuenta: tus calificaciones van con él.</small></label>
+          <label>Tu nombre<input name="driver" readonly><small>Es el de tu cuenta (se cambia en Mi perfil): tus calificaciones van con él.</small></label>
           <label>Teléfono / WhatsApp<input name="phone" type="tel" required maxlength="25" autocomplete="tel" placeholder="54 9 11 2345 6789"><small>Con código de país y de área, sin 0 ni 15.</small></label>
         </div>
         <label><span>Vehículo <span class="opt">(opcional)</span></span><input name="vehicle" maxlength="60" placeholder="Ej: Fiat Cronos gris"></label>
@@ -148,18 +148,18 @@
           <p class="stat"><strong id="st-drivers">–</strong>usuarios</p>
           <p class="stat alert"><strong id="st-reports">–</strong>denuncias abiertas</p>
         </div>
-        <div class="tabs" role="tablist" id="admin-tabs">
-          <button type="button" role="tab" data-tab="reports" aria-selected="true">Denuncias</button>
-          <button type="button" role="tab" data-tab="ratings" aria-selected="false">Calificaciones</button>
-          <button type="button" role="tab" data-tab="trips" aria-selected="false">Viajes</button>
-          <button type="button" role="tab" data-tab="users" aria-selected="false">Usuarios</button>
-          <button type="button" role="tab" data-tab="settings" aria-selected="false">Ajustes</button>
+        <div class="tabs" role="tablist" id="admin-tabs" aria-label="Secciones de administración">
+          <button type="button" role="tab" id="tab-admin-reports" aria-controls="pane-reports" data-tab="reports" aria-selected="true">Denuncias</button>
+          <button type="button" role="tab" id="tab-admin-ratings" aria-controls="pane-ratings" data-tab="ratings" aria-selected="false" tabindex="-1">Calificaciones</button>
+          <button type="button" role="tab" id="tab-admin-trips" aria-controls="pane-trips" data-tab="trips" aria-selected="false" tabindex="-1">Viajes</button>
+          <button type="button" role="tab" id="tab-admin-users" aria-controls="pane-users" data-tab="users" aria-selected="false" tabindex="-1">Usuarios</button>
+          <button type="button" role="tab" id="tab-admin-settings" aria-controls="pane-settings" data-tab="settings" aria-selected="false" tabindex="-1">Ajustes</button>
         </div>
-        <div class="admin-pane" id="pane-reports">
+        <div class="admin-pane" id="pane-reports" role="tabpanel" aria-labelledby="tab-admin-reports">
           <p class="muted">Avisos que la gente marcó desde la página. Si un viaje cobra un precio o parece un negocio, borralo y suspendé al conductor.</p>
           <div class="rows" id="admin-reports"></div>
         </div>
-        <div class="admin-pane" id="pane-ratings" hidden>
+        <div class="admin-pane" id="pane-ratings" role="tabpanel" aria-labelledby="tab-admin-ratings" hidden>
           <div class="filters">
             <p class="muted">Lo que la gente opina de conductores y acompañantes. Borrá las calificaciones falsas u ofensivas.</p>
             <select class="filter" id="filter-ratings" aria-label="Qué calificaciones mostrar">
@@ -169,11 +169,11 @@
           </div>
           <div class="rows" id="admin-ratings"></div>
         </div>
-        <div class="admin-pane" id="pane-trips" hidden>
+        <div class="admin-pane" id="pane-trips" role="tabpanel" aria-labelledby="tab-admin-trips" hidden>
           <input type="search" class="filter" id="filter-trips" placeholder="Buscar por ciudad, conductor, teléfono o correo">
           <div class="rows" id="admin-trips"></div>
         </div>
-        <div class="admin-pane" id="pane-users" hidden>
+        <div class="admin-pane" id="pane-users" role="tabpanel" aria-labelledby="tab-admin-users" hidden>
           <div class="filters">
             <input type="search" class="filter" id="filter-users" placeholder="Buscar por nombre o correo">
             <select class="filter" id="filter-role" aria-label="Qué usuarios mostrar">
@@ -186,7 +186,7 @@
           </div>
           <div class="rows" id="admin-users"></div>
         </div>
-        <div class="admin-pane" id="pane-settings" hidden>
+        <div class="admin-pane" id="pane-settings" role="tabpanel" aria-labelledby="tab-admin-settings" hidden>
           <form class="card form" id="settings-form" novalidate>
             <h2>Ingreso con Google</h2>
             <p id="google-status"></p>
@@ -195,13 +195,13 @@
               <summary>¿Dónde consigo el ID de cliente?</summary>
               <ol>
                 <li>Entrá a <strong>console.cloud.google.com</strong> con tu cuenta de Google y creá un proyecto (por ejemplo "Asiento Vacío").</li>
-                <li>Configurá la pantalla de consentimiento de OAuth: nombre de la app, tu correo de contacto, y publicala.</li>
+                <li>Configurá la pantalla de consentimiento de OAuth: elegí público <strong>Externo</strong>, poné el nombre de la app y tu correo de contacto, y publicala.</li>
                 <li>En <strong>Credenciales → Crear credenciales → ID de cliente de OAuth</strong>, elegí <strong>Aplicación web</strong>.</li>
-                <li>En <strong>Orígenes autorizados de JavaScript</strong> agregá <code class="site-origin"></code> (y también con <code>www.</code> si usás esa dirección).</li>
+                <li>En <strong>Orígenes autorizados de JavaScript</strong> agregá <span class="site-origins">la dirección de tu sitio, con y sin <code>www.</code></span></li>
                 <li>Copiá el <strong>ID de cliente</strong> (termina en <code>.apps.googleusercontent.com</code>) y pegalo acá.</li>
               </ol>
             </details>
-            <p class="muted">Para apagar el ingreso con Google, borrá el ID y guardá.</p>
+            <p class="muted">Para apagar el ingreso con Google, borrá el ID y guardá. Solo se puede mientras nadie haya entrado con Google: esas cuentas no tienen contraseña y quedarían afuera.</p>
             <p class="form-error" role="alert" hidden></p>
             <button class="btn" type="submit">Guardar</button>
           </form>
@@ -229,6 +229,11 @@
           <button type="button" class="btn btn-sm btn-ghost" id="photo-delete" hidden>Quitar foto</button>
         </div>
         <p class="muted small">Tu foto se ve en tus viajes, en tu perfil y en las opiniones que dejes.</p>
+        <form class="name-form" id="name-form" novalidate>
+          <label>Nombre que ven los demás<input name="name" required maxlength="80" autocomplete="name"><small>Sale en tus viajes, en tu perfil y en tus opiniones.</small></label>
+          <p class="form-error" role="alert" hidden></p>
+          <button class="btn btn-sm btn-ghost" type="submit">Cambiar nombre</button>
+        </form>
         <button type="button" class="btn btn-sm btn-ghost" id="logout">Cerrar sesión</button>
       </div>
 
@@ -239,6 +244,12 @@
         <label>Enlace a tu perfil<input id="me-link" readonly></label>
         <button type="button" class="btn btn-sm btn-ghost" id="copy-link">Copiar enlace</button>
         <div class="reviews" id="me-reviews"></div>
+      </section>
+
+      <section class="card profile-section" aria-labelledby="t-contacted" id="contacted-box" hidden>
+        <h2 id="t-contacted">Conductores que contactaste</h2>
+        <p class="muted">Después del viaje, entrá a su perfil para calificarlos. Esta lista queda guardada solo en este teléfono o computadora.</p>
+        <ul class="contacted" id="contacted"></ul>
       </section>
     </div>
   </section>
@@ -262,11 +273,11 @@
         <fieldset>
           <legend>¿Cómo fue viajar con esta persona?</legend>
           <div class="stars-input">
-            <input type="radio" id="star-5" name="stars" value="5" required><label for="star-5" title="5 estrellas: excelente">★</label>
-            <input type="radio" id="star-4" name="stars" value="4"><label for="star-4" title="4 estrellas: muy bien">★</label>
-            <input type="radio" id="star-3" name="stars" value="3"><label for="star-3" title="3 estrellas: bien">★</label>
-            <input type="radio" id="star-2" name="stars" value="2"><label for="star-2" title="2 estrellas: regular">★</label>
-            <input type="radio" id="star-1" name="stars" value="1"><label for="star-1" title="1 estrella: mal">★</label>
+            <input type="radio" id="star-1" name="stars" value="1" required><label for="star-1" title="1 estrella: mal"><span aria-hidden="true">★</span><span class="visually-hidden">1 estrella: mal</span></label>
+            <input type="radio" id="star-2" name="stars" value="2"><label for="star-2" title="2 estrellas: regular"><span aria-hidden="true">★</span><span class="visually-hidden">2 estrellas: regular</span></label>
+            <input type="radio" id="star-3" name="stars" value="3"><label for="star-3" title="3 estrellas: bien"><span aria-hidden="true">★</span><span class="visually-hidden">3 estrellas: bien</span></label>
+            <input type="radio" id="star-4" name="stars" value="4"><label for="star-4" title="4 estrellas: muy bien"><span aria-hidden="true">★</span><span class="visually-hidden">4 estrellas: muy bien</span></label>
+            <input type="radio" id="star-5" name="stars" value="5"><label for="star-5" title="5 estrellas: excelente"><span aria-hidden="true">★</span><span class="visually-hidden">5 estrellas: excelente</span></label>
           </div>
         </fieldset>
         <label><span>Comentario <span class="opt">(opcional)</span></span><textarea name="comment" rows="3" maxlength="300" placeholder="Puntualidad, trato, cómo manejó…"></textarea></label>
