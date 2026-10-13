@@ -11,8 +11,7 @@ const ROLE_TEXT = { driver: 'como conductor', rider: 'como acompañante' };
 const REASONS = { precio: 'Cobra un precio o parece un negocio', datos: 'Teléfono o datos falsos', ofensivo: 'Ofensivo o peligroso', otro: 'Otro motivo' };
 
 const state = {
-  csrf: '', today: '', user: null, googleClientId: '', sessionLoaded: false, fixingSetup: false,
-  trips: [], mine: [], tripsLoaded: false, next: 'viajes', returnTo: '',
+  csrf: '', today: '', user: null, googleClientId: '', trips: [], mine: [], tripsLoaded: false, next: 'viajes', returnTo: '',
 };
 const $ = (selector, root = document) => root.querySelector(selector);
 
@@ -46,7 +45,6 @@ async function loadSession() {
   state.today = session.today;
   state.user = session.user;
   state.googleClientId = session.googleClientId || '';
-  state.sessionLoaded = true;
 }
 
 /* Fechas */
@@ -305,6 +303,28 @@ function updateAuthUI() {
   document.querySelectorAll('.only-admin').forEach((el) => { el.hidden = !state.user?.admin; });
 }
 
+function selectTab(name) {
+  for (const tab of ['login', 'register']) {
+    $(`#tab-${tab}`).setAttribute('aria-selected', String(tab === name));
+    $(`#${tab}`).hidden = tab !== name;
+  }
+}
+
+async function authenticate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!form.checkValidity()) {
+    form.reportValidity();
+    return;
+  }
+  const body = Object.fromEntries(new FormData(form));
+  await busy(form, async () => {
+    const result = await api(form.id, { body });
+    form.reset();
+    signedIn(result);
+  });
+}
+
 function signedIn(result) {
   state.csrf = result.csrf;
   state.user = result.user;
@@ -314,7 +334,8 @@ function signedIn(result) {
   go(result.new && state.next === 'mis-viajes' ? 'perfil' : state.next);
 }
 
-/* Ingreso con Google (el único): el botón lo dibuja Google y el servidor comprueba el comprobante que entrega. */
+/* Ingreso con Google (opcional: aparece cuando la administración carga el ID de cliente).
+   El botón lo dibuja Google y el servidor comprueba el comprobante que entrega. */
 let googleScript = null;
 function loadGoogleScript() {
   if (window.google?.accounts?.id) return Promise.resolve();
@@ -332,25 +353,12 @@ function loadGoogleScript() {
 
 async function renderGoogle() {
   const box = $('#google-box');
-  const guest = !state.user;
-  const configured = Boolean(state.googleClientId);
-  // Sin el ID de cliente nadie puede entrar: se muestra el formulario para que el dueño lo cargue. Si ya hay
-  // uno pero está mal, el dueño lo corrige desde "¿Sos el dueño…?". Si no se pudo cargar la sesión, no se sabe.
-  const setup = $('#setup-form');
-  setup.hidden = !guest || !state.sessionLoaded || (configured && !state.fixingSetup);
-  $('#setup-title').textContent = configured ? 'Cambiar el ID de cliente de Google' : 'Falta configurar el ingreso';
-  $('#setup-text').textContent = configured
-    ? 'Si el botón de Google no funciona, puede que el ID de cliente esté mal copiado. Cargá el correcto junto con el código de administración.'
-    : 'Todavía nadie puede entrar: el sitio necesita el ID de cliente de Google. Si sos el dueño, cargalo acá junto con el código de administración.';
-  $('#setup-link').hidden = !guest || !configured || !setup.hidden;
-  $('#google-off').hidden = !guest || state.sessionLoaded;
-  box.hidden = !guest || !configured;
+  box.hidden = !state.googleClientId || Boolean(state.user);
   if (box.hidden) return;
   try {
     await loadGoogleScript();
   } catch {
     box.hidden = true;
-    $('#google-off').hidden = false;
     return;
   }
   if (state.googleReadyFor !== state.googleClientId) {
@@ -375,25 +383,6 @@ async function googleSignIn(response) {
     error.textContent = problem.message;
     error.hidden = false;
   }
-}
-
-async function setupGoogle(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  if (!form.checkValidity()) {
-    showError(form, 'Completá el código y el ID de cliente.');
-    return;
-  }
-  await busy(form, async () => {
-    const result = await api('setup', { body: { code: form.code.value, googleClientId: form.googleClientId.value.trim() } });
-    state.googleClientId = result.googleClientId;
-    state.fixingSetup = false;
-    form.reset();
-    // Después de entrar, se sigue con la administración (se activa con el mismo código).
-    state.next = 'admin';
-    toast('Listo: ya se puede entrar con Google. Entrá con tu cuenta para activar la administración.');
-    renderGoogle();
-  });
 }
 
 async function logout() {
@@ -597,12 +586,10 @@ function renderUsers() {
     const blocked = Number(u.blocked) === 1;
     const trips = Number(u.trips);
     const google = Number(u.google) === 1;
-    const linkOk = Number(u.google_link_ok) === 1;
     return el('article', { className: 'item' },
       el('div', { className: 'badges' },
         badge(Number(u.trips_total) > 0 ? 'Conductor' : 'Acompañante', 'off'),
-        isAdmin && badge('Administración'), google ? badge('Google', 'off') : badge('Cuenta vieja, con contraseña', 'warn'),
-        !google && linkOk && badge('Puede pasar a Google'),
+        isAdmin && badge('Administración'), google && badge('Google', 'off'),
         blocked && suspendedBadge(u), self && badge('Vos', 'off')),
       el('p', { className: 'item-title' }, avatar(u.photo, u.name, 'xs'), u.name),
       el('p', { className: 'item-meta' }, `${u.email} · desde el ${when(u.created)} · ${trips === 1 ? '1 viaje' : `${trips} viajes`} · `,
@@ -612,10 +599,6 @@ function renderUsers() {
         button('Ver viajes', () => showTripsOf(u.email)),
         u.photo && button('Quitar foto', () => adminAction('admin_user', { id: u.id, action: 'remove_photo' },
           { question: `¿Quitar la foto de perfil de ${u.name}?`, ok: 'Quitar foto', done: 'Foto quitada.' })),
-        // Las cuentas de antes, con contraseña, pasan a Google al entrar; si el correo no es de Gmail, hace falta este permiso.
-        !google && !linkOk && button('Dejar entrar con Google', () => adminAction('admin_user', { id: u.id, action: 'allow_google' },
-          { question: `¿Dejar que entre con la cuenta de Google de ${u.email}? Hacelo solo si sabés que ese correo es de ${u.name}.`,
-            ok: 'Permitir', done: 'Listo: la próxima vez puede entrar con Google.' })),
         !self && !isAdmin && (blocked
           ? button('Levantar suspensión', () => adminAction('admin_user', { id: u.id, action: 'unblock' }, { done: 'Suspensión levantada.' }))
           : button('Suspender', () => openSuspend(u), 'btn-danger')),
@@ -666,10 +649,10 @@ function renderSettings(settings) {
   form.googleClientId.value = settings.googleClientId;
   $('#google-status').textContent = settings.googleClientId
     ? 'Activado: en "Entrar" aparece el botón "Continuar con Google".'
-    : 'Falta el ID de cliente de Google: sin él nadie puede entrar.';
+    : 'Apagado: por ahora se entra solo con correo y contraseña.';
 }
 
-// Ayuda para conseguir el ID de cliente, con las dos direcciones del sitio (con y sin www).
+// Ayuda para conseguir el ID de cliente (en Ajustes), con las dos direcciones del sitio (con y sin www).
 // En la versión de prueba la dirección no es la del sitio y no hay .site-origins.
 function fillGoogleHelp() {
   document.querySelectorAll('.google-help').forEach((slot) => slot.replaceWith($('#google-help-tpl').content.cloneNode(true)));
@@ -687,7 +670,7 @@ async function saveSettings(event) {
   await busy(form, async () => {
     await api('admin_settings', { body: { googleClientId } });
     state.googleClientId = googleClientId;
-    toast('Listo: guardaste el ID de cliente de Google.');
+    toast(googleClientId ? 'Listo: el ingreso con Google quedó activado.' : 'Listo: el ingreso con Google quedó apagado.');
     await loadAdmin();
   });
 }
@@ -816,6 +799,9 @@ function renderContacts() {
 function renderMyPhoto() {
   const me = state.user;
   $('#me-photo').replaceChildren(avatar(me.photo, me.name, 'lg'));
+  $('#photo-note').textContent = me.google
+    ? 'Tu foto es la de tu cuenta de Google y se ve en tus viajes, en tu perfil y en las opiniones que dejes. Si no querés mostrarla, quitala.'
+    : 'En tus viajes y opiniones se ve la inicial de tu nombre. Si tu correo es de Gmail y entrás con "Continuar con Google", se pone tu foto de Google.';
   $('#photo-google').hidden = Boolean(me.photo) || !me.googlePicture;
   $('#photo-delete').hidden = !me.photo;
 }
@@ -1018,12 +1004,10 @@ async function init() {
   $('#search').addEventListener('input', renderTrips);
   $('#search').addEventListener('reset', () => setTimeout(renderTrips));
   $('#publish').addEventListener('submit', publish);
-  $('#setup-form').addEventListener('submit', setupGoogle);
-  $('#setup-show').addEventListener('click', () => {
-    state.fixingSetup = true;
-    renderGoogle();
-    $('#setup-form [name=code]').focus();
-  });
+  $('#login').addEventListener('submit', authenticate);
+  $('#register').addEventListener('submit', authenticate);
+  $('#tab-login').addEventListener('click', () => selectTab('login'));
+  $('#tab-register').addEventListener('click', () => selectTab('register'));
   $('#logout').addEventListener('click', logout);
   $('#report-form').addEventListener('submit', sendReport);
   $('#report-cancel').addEventListener('click', () => $('#report-dlg').close());

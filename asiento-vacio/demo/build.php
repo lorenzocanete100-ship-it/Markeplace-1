@@ -25,7 +25,7 @@ $banner = <<<'HTML'
 <div class="demo-bar" role="note">
   <div class="wrap demo-in">
     <p><strong>Modo prueba.</strong> Los viajes y las opiniones de ejemplo, y todo lo que cargues, quedan solo en este navegador: nada se publica de verdad.
-      El botón de Google es simulado: podés entrar con una cuenta nueva o como Marta, Lucía o Diego para probar las calificaciones. Código de administración de prueba: <code>PRUEBA-2026</code></p>
+      Podés crear una cuenta con cualquier correo, o usar el botón de Google simulado para entrar como Marta, Lucía o Diego y probar las calificaciones. Código de administración de prueba: <code>PRUEBA-2026</code></p>
     <button type="button" class="btn btn-sm btn-ghost" id="demo-reset">Empezar de cero</button>
   </div>
 </div>

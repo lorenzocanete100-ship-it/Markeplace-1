@@ -6,8 +6,9 @@ en la página. **No hay precios, reservas, pagos ni comisiones**: cada viaje
 aclara que solo se comparten los gastos de combustible y alguna comida.
 
 - Para viajar no hace falta cuenta: se llama o se escribe por WhatsApp directo al conductor.
-- Se entra **solo con la cuenta de Google** (sin contraseñas ni documentos). Para publicar, el
-  conductor entra y confirma que es un particular que comparte gastos.
+- Se entra con **correo y contraseña** o, si la administración lo activa, con la **cuenta de
+  Google** (sin documentos). Para publicar, el conductor entra y confirma que es un
+  particular que comparte gastos.
 - Conductores y acompañantes se califican entre ellos después del viaje.
 - Si alguien escribe un precio, un monto o la palabra "tarifa", la página no lo deja publicar.
 - Los viajes que ya pasaron y los que están completos dejan de verse solos.
@@ -40,9 +41,9 @@ php -S localhost:8000 -t public     # abrir http://localhost:8000
 php tests/api_test.php              # correr las pruebas
 ```
 
-Como se entra solo con Google, para entrar en la computadora hace falta un ID de
-cliente que tenga autorizado `http://localhost:8000` (ver abajo). Las pruebas no
-lo necesitan: usan un "Google" de mentira.
+Para probar el botón de Google en la computadora hace falta un ID de cliente que
+tenga autorizado `http://localhost:8000` (ver abajo). Las pruebas no lo
+necesitan: usan un "Google" de mentira.
 
 
 ## Calificaciones
@@ -65,11 +66,14 @@ perfil de estrellas con cuentas inventadas, hay un límite de calificaciones por
 día por cuenta y por conexión, y en Administrar → Calificaciones se marcan las
 hechas con cuentas de menos de una semana.
 
-## Ingreso con Google (el único)
+## Cuentas: correo y contraseña, y Google (opcional)
 
-Se entra solo con la cuenta de Google: la cuenta se crea sola la primera vez, con
-el nombre de Google (cada uno lo puede cambiar en "Mi perfil"). Hace falta un
-"ID de cliente" de Google (es gratis):
+Cada uno crea su cuenta en "Entrar → Crear cuenta" con nombre, correo y contraseña
+(mínimo 10 caracteres). No hace falta configurar nada.
+
+Además, la administración puede activar el botón "Continuar con Google": la cuenta
+se crea sola la primera vez con el nombre y la foto de Google. Hace falta un "ID de
+cliente" de Google (es gratis), que se consigue una sola vez:
 
 1. Entrar a <https://console.cloud.google.com/>, crear un proyecto y, en
    "Pantalla de consentimiento de OAuth", elegir público "Externo", completar
@@ -78,37 +82,27 @@ el nombre de Google (cada uno lo puede cambiar en "Mi perfil"). Hace falta un
 2. En "Credenciales" → "Crear credenciales" → "ID de cliente de OAuth", elegir
    "Aplicación web" y en "Orígenes de JavaScript autorizados" poner
    `https://asientovacio.com.ar` y `https://www.asientovacio.com.ar`.
-3. Copiar el ID (termina en `.apps.googleusercontent.com`).
-4. La primera vez, abrir el sitio → "Entrar": como todavía nadie puede entrar,
-   aparece "Falta configurar el ingreso". Pegar ahí el ID junto con el código de
-   administración. Después, entrar con Google y activar la administración con el
-   mismo código.
+3. Copiar el ID (termina en `.apps.googleusercontent.com`) y pegarlo en
+   Administrar → Ajustes.
 
-Más adelante el ID se cambia en Administrar → Ajustes (no se puede borrar,
-porque sin él nadie podría entrar). Si se pegó un ID equivocado y el botón de
-Google no funciona, en "Entrar" está el enlace "¿Sos el dueño del sitio y el
-botón de Google no funciona?", que deja cargar el correcto con el código.
+Si alguien ya tenía cuenta con un correo de Gmail (o de una empresa que usa
+Google), al entrar con Google queda unida a esa cuenta: la contraseña anterior
+deja de servir y se cierran las sesiones que estaban abiertas. Con otros correos
+(Hotmail, Yahoo, etc.) no se une sola: hay que seguir entrando con la contraseña.
+El sitio comprueba la firma de Google por su cuenta, sin librerías extra (hace
+falta que PHP pueda bajar archivos por HTTPS, como en Hostinger).
 
-Si la administración era una cuenta vieja que no puede pasar sola a Google (ver
-abajo), el dueño entra con su cuenta de Google y vuelve a activar la
-administración con el código; después le da permiso a la cuenta vieja. El sitio comprueba la firma de Google por su
-cuenta, sin librerías extra (hace falta que PHP pueda bajar archivos por HTTPS,
-como en Hostinger).
+Las cuentas creadas con Google no tienen contraseña, así que una vez que alguien
+entró con Google, Ajustes no deja apagar el ingreso con Google (sí cambiar el ID).
 
-**Cuentas de antes, con contraseña.** Las versiones anteriores tenían cuentas con
-correo y contraseña. Si el correo es de Gmail (o de una empresa que usa Google),
-al entrar con Google esa persona sigue con su misma cuenta. Con otros correos
-(Hotmail, Yahoo, etc.) no se une sola, porque Google no garantiza quién es el
-dueño de esos correos: en Administrar → Usuarios aparecen como "Cuenta vieja,
-con contraseña" y el botón "Dejar entrar con Google" la habilita. En los dos
-casos la contraseña deja de servir y se cierran las sesiones que estaban
-abiertas. Las calificaciones de antes, que no decían cómo viajaron, se toman como
-de conductor si la persona calificada publicó viajes, y si no, de acompañante.
+Las calificaciones de versiones anteriores, que no decían cómo viajaron, se toman
+como de conductor si la persona calificada publicó viajes, y si no, de acompañante.
 
 ## Fotos de perfil
 
-La foto de perfil es la de la cuenta de Google: se pone sola al entrar y se
-actualiza si la persona la cambia en Google. Nadie sube fotos. Desde "Mi perfil"
+La foto de perfil es la de la cuenta de Google: se pone sola al entrar con Google
+y se actualiza si la persona la cambia ahí. Nadie sube fotos: las cuentas con
+correo y contraseña muestran la inicial del nombre. Desde "Mi perfil"
 se puede quitar (y ya no vuelve sola) o volver a mostrar. La foto se recorta
 cuadrada, se achica a 320 × 320 y se guarda en `asiento-vacio-datos/fotos`. Se ve
 en los viajes, en el perfil público y en las opiniones; quien no tiene foto
@@ -131,7 +125,8 @@ La forma más simple es subir el zip con el contenido de `public/`:
 2. Subir el zip y, con clic derecho, "Extraer" ahí mismo (si se pisa una versión
    anterior, aceptar reemplazar los archivos).
 3. Si quedó una copia vieja en una subcarpeta (por ejemplo `public_html/viajes`),
-   borrarla: usa la misma carpeta de datos y todavía deja entrar con contraseña.
+   borrarla: usa la misma carpeta de datos y tiene cosas que ya no van (como
+   pedir fotos del DNI).
 4. Abrir el sitio. La carpeta de datos se crea sola y lo que había de antes se
    conserva.
 
@@ -160,9 +155,8 @@ menú para quien ya es administrador) hay un resumen y estas pestañas:
   baja. A cada usuario se lo puede suspender 1, 7 o 30 días o sin fecha, con un
   motivo que ve al intentar entrar; mientras dura no puede entrar, sus viajes no
   se ven y sus calificaciones no cuentan, y al cumplirse el plazo se levanta
-  sola. También se puede quitar su foto, nombrar o quitar administradores y dejar
-  entrar con Google a una cuenta vieja con contraseña.
-- **Ajustes**: el ID de cliente de Google (se puede cambiar, no borrar).
+  sola. También se puede quitar su foto y nombrar o quitar administradores.
+- **Ajustes**: el ID de cliente de Google, para activar "Continuar con Google".
 
 La primera cuenta de administración se activa una sola vez con un código
 secreto: en `config.php` solo está su huella SHA-256. Para cambiar el código,
