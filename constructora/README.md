@@ -21,3 +21,14 @@ gunicorn 'app:create_app()'
 - `/admin` lista de solicitudes con fotos (usuario cualquiera + `ADMIN_PASSWORD`).
 
 Tests: `python -m unittest test_app`
+
+## Publicar en Render
+1. En [render.com](https://render.com) creá una cuenta y conectá GitHub.
+2. **New → Blueprint** y elegí este repositorio: Render lee `render.yaml` de la raíz.
+3. Cuando lo pida, completá:
+   - `WHATSAPP_NUMBER`: número de la empresa con código de país, sin `+` (ej. `5491112345678`).
+   - `ADMIN_PASSWORD`: contraseña para entrar a `/admin`.
+4. Render genera `SECRET_KEY` solo y crea un disco de 1 GB en `/var/data` donde se guardan
+   las solicitudes y las fotos (por eso usa el plan *Starter*; en el plan gratis se perderían).
+5. Al terminar, la web queda en `https://vx-constructora.onrender.com` (o el nombre que asigne Render).
+   Para un dominio propio: *Settings → Custom Domains*.
