@@ -64,6 +64,23 @@ class ConstructoraTests(unittest.TestCase):
         r = self.client.post('/api/quotes', data={'service': 'llave_en_mano'})
         self.assertEqual(r.status_code, 403)
 
+    def test_works_gallery(self):
+        auth = {'Authorization': 'Basic ' + __import__('base64').b64encode(b'admin:admin-pass').decode(), 'X-CSRF-Token': self.csrf}
+        self.assertEqual(self.client.get('/api/works').json['items'], [])
+        r = self.client.post('/admin/api/works', data={'caption': 'Casa 140 m²', 'photo': self.photo()}, headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(r.status_code, 401)
+        r = self.client.post('/admin/api/works', data={'caption': 'Casa 140 m²', 'photo': self.photo()}, headers={'Authorization': auth['Authorization']})
+        self.assertEqual(r.status_code, 403)
+        r = self.client.post('/admin/api/works', data={'caption': 'Casa 140 m²', 'photo': self.photo()}, headers=auth)
+        self.assertEqual(r.status_code, 201, r.json)
+        items = self.client.get('/api/works').json['items']
+        self.assertEqual([i['caption'] for i in items], ['Casa 140 m²'])
+        self.assertEqual(self.client.get('/api/works/photos/' + items[0]['photo']).status_code, 200)
+        self.assertEqual(self.client.post('/admin/api/works', data={'photo': (io.BytesIO(b'x'), 'x.png')}, headers=auth).status_code, 400)
+        self.assertEqual(self.client.delete('/admin/api/works/' + items[0]['id'], headers=auth).status_code, 200)
+        self.assertEqual(self.client.get('/api/works').json['items'], [])
+        self.assertEqual(self.client.get('/api/works/photos/' + items[0]['photo']).status_code, 404)
+
     def test_pages(self):
         self.assertIn(b'escribano', self.client.get('/').data)
         self.assertEqual(self.client.get('/healthz').json, {'ok': True})

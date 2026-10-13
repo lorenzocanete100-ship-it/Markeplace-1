@@ -16,6 +16,30 @@
     })
     .catch(() => {});
 
+  fetch('/api/works', { credentials: 'same-origin' })
+    .then((r) => r.json())
+    .then(({ items }) => {
+      if (!items || !items.length) return;
+      const box = $('#gallery');
+      items.forEach((w) => {
+        const fig = document.createElement('figure');
+        const img = document.createElement('img');
+        img.src = '/api/works/photos/' + w.photo;
+        img.alt = w.caption || 'Obra de V+X Constructora';
+        img.loading = 'lazy';
+        fig.append(img);
+        if (w.caption) {
+          const cap = document.createElement('figcaption');
+          cap.textContent = w.caption;
+          fig.append(cap);
+        }
+        box.append(fig);
+      });
+      $('#obras').hidden = false;
+      $('#obrasLink').hidden = false;
+    })
+    .catch(() => {});
+
   function values() {
     const fd = new FormData(form);
     return { service: fd.get('service'), mode: fd.get('mode'), m2: parseFloat(fd.get('m2')) };
