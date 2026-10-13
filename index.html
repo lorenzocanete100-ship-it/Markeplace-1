@@ -7,8 +7,8 @@
 <meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
 <meta name="theme-color" content="#17409a">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/styles.css?v=13">
-<script src="assets/app.js?v=13" defer></script>
+<link rel="stylesheet" href="assets/styles.css?v=14">
+<script src="assets/app.js?v=14" defer></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true">
@@ -191,8 +191,9 @@
             <h2>Ingreso con Google</h2>
             <p id="google-status"></p>
             <label>ID de cliente de Google<input name="googleClientId" autocomplete="off" spellcheck="false" placeholder="1234567890-abc123.apps.googleusercontent.com"></label>
+            <p class="muted">Es opcional: sin él se entra con correo y contraseña. Con el ID cargado, en "Entrar" aparece también el botón "Continuar con Google".</p>
             <div class="google-help"></div>
-            <p class="muted">Se entra solo con Google, así que el ID se puede cambiar pero no borrar.</p>
+            <p class="muted">Para apagarlo, borrá el ID y guardá. Solo se puede mientras nadie haya entrado con Google: esas cuentas no tienen contraseña y quedarían afuera.</p>
             <p class="form-error" role="alert" hidden></p>
             <button class="btn" type="submit">Guardar</button>
           </form>
@@ -213,7 +214,7 @@
             <p class="muted" id="me-meta"></p>
           </div>
         </div>
-        <p class="muted small">Tu foto es la de tu cuenta de Google y se ve en tus viajes, en tu perfil y en las opiniones que dejes. Si no querés mostrarla, quitala.</p>
+        <p class="muted small" id="photo-note"></p>
         <div class="photo-actions">
           <button type="button" class="btn btn-sm btn-ghost" id="photo-delete" hidden>Quitar foto</button>
           <button type="button" class="btn btn-sm btn-ghost" id="photo-google" hidden>Mostrar mi foto de Google</button>
@@ -281,7 +282,7 @@
           <button class="btn" type="submit">Guardar calificación</button>
         </div>
       </form>
-      <p class="card rate-login" id="rate-login" hidden><a href="#entrar">Entrá con tu cuenta de Google</a> para calificar a esta persona.</p>
+      <p class="card rate-login" id="rate-login" hidden><a href="#entrar">Entrá con tu cuenta</a> para calificar a esta persona.</p>
 
       <h2 class="pp-title">Opiniones</h2>
       <div class="reviews" id="pp-reviews"></div>
@@ -294,23 +295,29 @@
 
   <section class="view" id="view-entrar" aria-labelledby="t-entrar" hidden>
     <div class="wrap narrow">
-      <h1 id="t-entrar">Entrar</h1>
-      <p class="muted">Se entra con tu cuenta de Google: no hace falta crear otra cuenta ni acordarse de una contraseña. Con tu cuenta podés publicar viajes y calificar a conductores y acompañantes. Para viajar no hace falta: llamá directo al conductor.</p>
-      <div class="card google-box" id="google-box" hidden>
+      <h1 id="t-entrar">Tu cuenta</h1>
+      <p class="muted">Con una cuenta podés publicar viajes y calificar a conductores y acompañantes. Para viajar no hace falta: llamá directo al conductor.</p>
+      <div class="google-box" id="google-box" hidden>
         <div id="google-button"></div>
         <p class="form-error" id="google-error" role="alert" hidden></p>
-        <p class="muted small">Tu nombre y tu foto de Google se usan para tu perfil (después los podés cambiar o quitar). Tu correo no se muestra a nadie.</p>
+        <p class="or"><span>o con tu correo</span></p>
       </div>
-      <p class="card note" id="google-off" role="alert" hidden>No se pudo cargar el ingreso. Revisá tu conexión y recargá la página.</p>
-      <p class="setup-link" id="setup-link" hidden><button type="button" class="link-muted" id="setup-show">¿Sos el dueño del sitio y el botón de Google no funciona?</button></p>
-      <form class="card form" id="setup-form" novalidate hidden>
-        <h2 id="setup-title">Falta configurar el ingreso</h2>
-        <p id="setup-text">Todavía nadie puede entrar: el sitio necesita el ID de cliente de Google. Si sos el dueño, cargalo acá junto con el código de administración.</p>
-        <label>Código de administración<input name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX"></label>
-        <label>ID de cliente de Google<input name="googleClientId" required autocomplete="off" spellcheck="false" placeholder="1234567890-abc123.apps.googleusercontent.com"></label>
-        <div class="google-help"></div>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="login">Entrar</button>
+        <button type="button" role="tab" id="tab-register" aria-selected="false" aria-controls="register">Crear cuenta</button>
+      </div>
+      <form class="card form" id="login" role="tabpanel" aria-labelledby="tab-login">
+        <label>Correo<input name="email" type="email" required autocomplete="email"></label>
+        <label>Contraseña<input name="password" type="password" required minlength="10" autocomplete="current-password"></label>
         <p class="form-error" role="alert" hidden></p>
-        <button class="btn btn-big" type="submit">Activar el ingreso con Google</button>
+        <button class="btn btn-big" type="submit">Entrar</button>
+      </form>
+      <form class="card form" id="register" role="tabpanel" aria-labelledby="tab-register" hidden>
+        <label>Nombre<input name="name" required maxlength="80" autocomplete="name"><small>Es el que ven los demás en tus viajes y opiniones.</small></label>
+        <label>Correo<input name="email" type="email" required autocomplete="email"><small>No se muestra a nadie.</small></label>
+        <label>Contraseña<input name="password" type="password" required minlength="10" autocomplete="new-password"><small>Mínimo 10 caracteres.</small></label>
+        <p class="form-error" role="alert" hidden></p>
+        <button class="btn btn-big" type="submit">Crear cuenta</button>
       </form>
     </div>
   </section>

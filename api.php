@@ -122,7 +122,7 @@ function connect(string $dir): PDO
             'google_sub' => "TEXT NOT NULL DEFAULT ''",
             'photo' => "TEXT NOT NULL DEFAULT ''", 'google_picture' => "TEXT NOT NULL DEFAULT ''",
             'auth_epoch' => 'INTEGER NOT NULL DEFAULT 0',
-            'photo_off' => 'INTEGER NOT NULL DEFAULT 0', 'google_link_ok' => 'INTEGER NOT NULL DEFAULT 0',
+            'photo_off' => 'INTEGER NOT NULL DEFAULT 0',
         ],
         'ratings' => ['role' => "TEXT NOT NULL DEFAULT ''"],
     ];
@@ -547,24 +547,38 @@ try {
 
         case 'POST login':
         case 'POST register':
-            fail('Ahora se entra solo con la cuenta de Google.', 410);
-
-        case 'POST setup':
-            // Sin un ID de cliente de Google que funcione nadie puede entrar, ni siquiera la administración: el
-            // dueño del sitio lo carga (la primera vez) o lo corrige (si pegó uno equivocado) con el código.
-            if (!limit($db, 'claim:' . $ip, 10, 3600)) {
-                fail('Demasiados intentos. Esperá una hora.', 429);
+            if (!limit($db, 'auth:' . $ip, 25, 900)) {
+                fail('Demasiados intentos. Esperá 15 minutos.', 429);
             }
-            if (!admin_code_ok($config, $input['code'] ?? '')) {
-                fail('El código no es correcto.', 403);
+            $email = strtolower(clean($input['email'] ?? ''));
+            $password = is_string($input['password'] ?? null) ? $input['password'] : '';
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 254 || !length_between($password, 10, 128)) {
+                fail('Revisá el correo y usá una contraseña de 10 a 128 caracteres.');
             }
-            $clientId = clean($input['googleClientId'] ?? '');
-            if (!preg_match(GOOGLE_CLIENT_ID, $clientId)) {
-                fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
+            if ($action === 'register') {
+                $name = clean($input['name'] ?? '');
+                if (!length_between($name, 2, 80)) {
+                    fail('Ingresá tu nombre (2 a 80 caracteres).');
+                }
+                $uid = bin2hex(random_bytes(16));
+                try {
+                    query($db, 'INSERT INTO users(id,email,name,password,created) VALUES (?,?,?,?,?)',
+                        [$uid, $email, $name, password_hash($password, PASSWORD_DEFAULT), time()]);
+                } catch (PDOException) {
+                    fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
+                }
+                sign_in($db, $uid, true);
             }
-            query($db, 'INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
-                ['google_client_id', $clientId]);
-            respond(['googleClientId' => $clientId]);
+            $row = query($db, 'SELECT id,password,google_sub,blocked,blocked_until,blocked_reason FROM users WHERE email=?', [$email])->fetch();
+            if (!$row || !password_verify($password, $row['password'])) {
+                fail($row && $row['google_sub'] !== ''
+                    ? 'Esta cuenta entra con Google: tocá "Continuar con Google".'
+                    : 'Correo o contraseña incorrectos.', 401);
+            }
+            if ((int)$row['blocked'] === 1) {
+                suspended($row);
+            }
+            sign_in($db, $row['id']);
 
         case 'POST google':
             $clientId = setting($db, 'google_client_id');
@@ -593,7 +607,7 @@ try {
             }
             $picture = is_string($claims['picture'] ?? null) && preg_match($config['google_picture_pattern'], $claims['picture'])
                 ? $claims['picture'] : '';
-            $fields = 'SELECT id,name,google_sub,google_picture,google_link_ok,blocked,blocked_until,blocked_reason FROM users';
+            $fields = 'SELECT id,name,google_sub,google_picture,blocked,blocked_until,blocked_reason FROM users';
             $account = query($db, "$fields WHERE google_sub=?", [$claims['sub']])->fetch()
                 ?: query($db, "$fields WHERE email=?", [$email])->fetch();
             if ($account) {
@@ -604,14 +618,14 @@ try {
                     suspended($account);
                 }
                 if ($account['google_sub'] === '') {
-                    // Cuenta de una versión anterior, creada con contraseña. Se pasa a Google si Google responde
-                    // por el dueño del correo, o si la administración lo permitió para esta cuenta.
-                    if (!$googleOwnsEmail && (int)$account['google_link_ok'] !== 1) {
-                        fail('Ya había una cuenta con ese correo, creada con contraseña. Pedile a la administración que la pase a Google.', 409);
+                    // Cuenta creada con correo y contraseña. Se une a Google solo si Google responde por quién es el
+                    // dueño del correo (Gmail o Google Workspace); si no, se sigue entrando con la contraseña.
+                    if (!$googleOwnsEmail) {
+                        fail('Ya hay una cuenta con ese correo. Entrá con tu correo y contraseña.', 409);
                     }
                     // Por si otra persona hubiera creado la cuenta con ese correo antes que el dueño, la contraseña
                     // deja de servir, se cierran las sesiones que estaban abiertas y queda el nombre de Google.
-                    query($db, 'UPDATE users SET google_sub=?, password=?, name=?, google_link_ok=0, auth_epoch=auth_epoch+1 WHERE id=?', [
+                    query($db, 'UPDATE users SET google_sub=?, password=?, name=?, auth_epoch=auth_epoch+1 WHERE id=?', [
                         $claims['sub'], password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT),
                         mb_strlen($name) >= 2 ? $name : $account['name'], $account['id'],
                     ]);
@@ -831,9 +845,7 @@ try {
             if (!limit($db, 'claim:' . $ip, 10, 3600)) {
                 fail('Demasiados intentos. Esperá una hora.', 429);
             }
-            // Solo cuentan los administradores que pueden entrar (con Google). Si la administración era una cuenta
-            // vieja con contraseña, el dueño la recupera con el código y después le da permiso a esa cuenta.
-            if ($db->query("SELECT 1 FROM users WHERE is_admin=1 AND google_sub != ''")->fetch()) {
+            if ($db->query('SELECT 1 FROM users WHERE is_admin=1')->fetch()) {
                 fail('La administración ya está activada. Pedile acceso a un administrador.', 409);
             }
             if (!admin_code_ok($config, $input['code'] ?? '')) {
@@ -882,7 +894,7 @@ try {
 
         case 'GET admin_users':
             respond(['items' => array_map(fn($u) => [...$u, 'photo' => photo_url($u['photo'])], query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked,
-                    u.blocked_until, u.blocked_reason, u.google_sub != '' AS google, u.google_link_ok,
+                    u.blocked_until, u.blocked_reason, u.google_sub != '' AS google,
                     (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id AND t.status!='deleted') AS trips,
                     (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total, u.photo, " . rating_sql('u.id', 'user') . ', '
                     . rating_sql('u.id', 'driver', 'driver') . ', ' . rating_sql('u.id', 'rider', 'rider') . "
@@ -892,13 +904,15 @@ try {
             respond(['googleClientId' => setting($db, 'google_client_id')]);
 
         case 'POST admin_settings':
-            // Se entra solo con Google: sin el ID nadie podría entrar, así que se puede cambiar pero no borrar.
             $clientId = clean($input['googleClientId'] ?? '');
-            if ($clientId === '') {
-                fail('Sin el ID de cliente de Google nadie podría entrar. Si cambiaste de proyecto en Google, pegá el ID nuevo.');
-            }
-            if (!preg_match(GOOGLE_CLIENT_ID, $clientId)) {
+            if ($clientId !== '' && !preg_match(GOOGLE_CLIENT_ID, $clientId)) {
                 fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
+            }
+            // Las cuentas creadas con Google no tienen contraseña: si se apaga Google, no podrían volver a entrar.
+            $googleAccounts = (int)$db->query("SELECT COUNT(*) FROM users WHERE google_sub != ''")->fetchColumn();
+            if ($clientId === '' && $googleAccounts > 0) {
+                fail("No se puede apagar: $googleAccounts " . ($googleAccounts === 1 ? 'cuenta entra' : 'cuentas entran')
+                    . ' con Google y no podrían volver a entrar. Si cambiaste de proyecto en Google, pegá el ID nuevo.', 409);
             }
             query($db, 'INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
                 ['google_client_id', $clientId]);
@@ -944,15 +958,6 @@ try {
             if ($do === 'remove_photo') {
                 replace_photo($db, $photos, $target, '');
                 query($db, 'UPDATE users SET photo_off=1 WHERE id=?', [$target['id']]);
-                respond(['ok' => true]);
-            }
-            if ($do === 'allow_google') {
-                // Una cuenta vieja con contraseña y un correo que no es de Gmail: la próxima vez que esa persona
-                // entre con Google con ese mismo correo, se une a esta cuenta.
-                if ($target['google_sub'] !== '') {
-                    fail('Esa cuenta ya entra con Google.');
-                }
-                query($db, 'UPDATE users SET google_link_ok=1 WHERE id=?', [$target['id']]);
                 respond(['ok' => true]);
             }
             $changes = ['unblock' => "blocked=0, blocked_until=0, blocked_reason=''", 'make_admin' => 'is_admin=1',

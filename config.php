@@ -16,9 +16,8 @@ return [
     'data_dir' => getenv('ASIENTO_DATA_DIR')
         ?: (preg_match('#^(.*)/public_html(/|$)#', __DIR__, $m) ? $m[1] : dirname(__DIR__)) . '/asiento-vacio-datos',
 
-    // Claves públicas de Google para comprobar el ingreso (se entra solo con Google). El ID de
-    // cliente no va acá: la primera vez se carga en la página "Entrar" con el código de
-    // administración, y después se cambia en Administrar → Ajustes.
+    // Claves públicas de Google para comprobar el ingreso con Google (opcional: también se entra
+    // con correo y contraseña). El ID de cliente no va acá: se carga en Administrar → Ajustes.
     'google_certs_url' => getenv('ASIENTO_GOOGLE_CERTS_URL') ?: 'https://www.googleapis.com/oauth2/v3/certs',
     // De dónde se acepta traer la foto de una cuenta de Google (la de su perfil, que se pone sola).
     'google_picture_pattern' => getenv('ASIENTO_GOOGLE_PICTURE_PATTERN') ?: '#^https://lh[0-9]\.googleusercontent\.com/#',
