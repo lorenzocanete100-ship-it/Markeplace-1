@@ -17,9 +17,15 @@ h1, h2, h3 { line-height: 1.15; margin: 0 0 .5em; }
 .logo { background: var(--accent); color: var(--accent-ink); font-weight: 900; padding: 3px 8px; border-radius: 6px; letter-spacing: .5px; }
 /* Nombre de la empresa: placa amarilla de obra con letras y recuadro negros, igual en toda la página. */
 .nameplate { --plate: #ffc61a; display: inline-flex; align-items: baseline; gap: .4em; width: fit-content; margin: 0; background: var(--plate); color: #000; border: 3px solid #000; box-shadow: 0 0 0 2px var(--plate); padding: .12em .5em .16em; font-size: 1.5rem; font-weight: 900; letter-spacing: .02em; line-height: 1.1; text-decoration: none; white-space: nowrap; border-radius: 2px; }
-.nameplate span { font-size: .52em; font-weight: 800; text-transform: uppercase; letter-spacing: .14em; }
+.nameplate .vx { display: inline-flex; align-items: baseline; letter-spacing: 0; }
+.nameplate .v { font-size: 1.4em; line-height: 1; }
+.nameplate .p { font-size: .8em; margin: 0 .04em; }
+.nameplate .x { font-size: .75em; }
+.nameplate .nc { font-size: .52em; font-weight: 800; text-transform: uppercase; letter-spacing: .14em; }
 .nameplate-lg { font-size: clamp(2.3rem, 9vw, 3.2rem); border-width: 4px; margin-bottom: 18px; }
 .foot .nameplate { margin-bottom: 8px; }
+.nav .nameplate { font-size: 1.2rem; }
+.btn { white-space: nowrap; }
 .links { display: flex; align-items: center; gap: 18px; }
 .links a { text-decoration: none; opacity: .9; }
 .links a:not(.btn) { display: none; }
