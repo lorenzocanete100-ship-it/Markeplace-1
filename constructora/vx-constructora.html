@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>V+X Constructora</title>
+<meta name="description" content="V+X Constructora: construcción llave en mano y refacciones con garantía total de 10 años escrita ante escribano. Cotizá tu obra online.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='6' fill='%23ffc61a' stroke='%23000' stroke-width='4'/%3E%3Ctext x='20' y='27' text-anchor='middle' font-family='Arial' font-weight='900' font-size='15'%3EV+X%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: sticky bar, graphite hero with the warranty as thesis, plan-sheet style quote calculator */
+:root {
+  --bg: #f2f3f4; --surface: #ffffff; --ink: #1b1d20; --muted: #5f646b; --line: #dcdfe2; --strong: #2b2f34;
+  --navy: #1c1f23; --navy-2: #3b4046; --on-navy: #f1f2f3; --on-navy-muted: #b3b8be;
+  --accent: #ffc61a; --accent-ink: #111111; --accent-soft: #ffc61a; --accent-tint: #eceef0;
+  --wa: #1a9e50; --danger: #c0392b;
+  --display: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --r: 12px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121315; --surface: #1b1d20; --ink: #eceef0; --muted: #a4a9b0; --line: #2f3337; --strong: #e3e5e8;
+  --navy: #0e0f11; --navy-2: #2a2e33; --accent-tint: #2a2e33; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121315; --surface: #1b1d20; --ink: #eceef0; --muted: #a4a9b0; --line: #2f3337; --strong: #e3e5e8;
+  --navy: #0e0f11; --navy-2: #2a2e33; --accent-tint: #2a2e33; color-scheme: dark }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--body); }
+h1, h2, h3 { font-family: var(--display); line-height: 1.05; margin: 0; text-wrap: balance; letter-spacing: .2px; }
+a { color: inherit; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 16px; }
+.narrow { max-width: 760px; }
+
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--navy); color: var(--on-navy); border-bottom: 1px solid rgba(255,255,255,.08); }
+.bar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.mark { font-family: var(--display); font-weight: 800; font-size: 1.15rem; background: var(--accent); color: var(--accent-ink); padding: 1px 9px; border-radius: 6px; letter-spacing: .5px; }
+/* Company name: construction-yellow plate, black letters and black frame, same in both themes */
+.nameplate { --plate: #ffc61a; display: inline-flex; align-items: baseline; gap: .4em; width: fit-content; margin: 0; background: var(--plate); color: #000; border: 3px solid #000; box-shadow: 0 0 0 2px var(--plate); padding: .08em .5em .12em; font-family: var(--display); font-weight: 800; font-size: 1.75rem; letter-spacing: .03em; line-height: 1.1; text-decoration: none; white-space: nowrap; border-radius: 2px; }
+.nameplate .vx { display: inline-flex; align-items: baseline; letter-spacing: 0; }
+.nameplate .v { font-size: 1.4em; line-height: 1; }
+.nameplate .p { font-size: .8em; margin: 0 .04em; }
+.nameplate .x { font-size: .75em; }
+.nameplate .nc { font-size: .5em; font-weight: 700; text-transform: uppercase; letter-spacing: .16em; }
+.nameplate.lg { font-size: clamp(2.6rem, 10vw, 3.6rem); border-width: 4px; }
+footer .nameplate { margin-bottom: 10px; }
+.bar nav { display: flex; gap: 20px; align-items: center; }
+.bar nav a.l { display: none; text-decoration: none; color: var(--on-navy-muted); font-weight: 600; }
+.bar nav a.l:hover { color: var(--on-navy); }
+@media (min-width: 720px) { .bar nav a.l { display: inline; } }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 10px; padding: 13px 22px; font: 700 1rem var(--body); text-decoration: none; cursor: pointer; background: var(--accent); color: var(--accent-ink); transition: filter .15s, transform .1s; }
+.btn:hover { filter: brightness(1.08); }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--strong); outline-offset: 2px; }
+.btn.sm { padding: 8px 14px; font-size: .92rem; }
+.btn.wa { background: var(--wa); color: #fff; }
+.btn.ghost { background: transparent; color: var(--ink); border: 2px solid var(--line); }
+.btn.block { width: 100%; }
+
+.hero { background: radial-gradient(ellipse at 90% 0%, rgba(255,255,255,.10), transparent 55%), linear-gradient(165deg, var(--navy), var(--navy-2)); color: var(--on-navy); padding-block: 56px 48px; position: relative; overflow: hidden; }
+.hero::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .12;
+  background-image: linear-gradient(var(--on-navy-muted) 1px, transparent 1px), linear-gradient(90deg, var(--on-navy-muted) 1px, transparent 1px);
+  background-size: 32px 32px; mask-image: linear-gradient(90deg, transparent 30%, #000); -webkit-mask-image: linear-gradient(90deg, transparent 30%, #000); }
+.hero .wrap { position: relative; z-index: 1; display: grid; gap: 28px; }
+.kicker { font-weight: 700; text-transform: uppercase; letter-spacing: 1.6px; font-size: .78rem; color: var(--accent-soft); margin: 0; }
+.hero h1 { font-size: clamp(2.5rem, 7.5vw, 4.6rem); font-weight: 800; text-transform: uppercase; max-width: 15ch; }
+.hero h1 em { font-style: normal; color: var(--accent-soft); }
+.lead { font-size: 1.12rem; max-width: 58ch; color: var(--on-navy-muted); margin: 0; }
+.lead b { color: var(--on-navy); }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.seal { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; max-width: 560px; border: 1px solid rgba(200,204,209,.3); border-radius: var(--r); padding: 16px 18px; background: rgba(255,255,255,.04); }
+.seal .years { font-family: var(--display); font-weight: 800; font-size: 3.4rem; line-height: .9; color: var(--accent-soft); text-align: center; }
+.seal .years small { display: block; font-size: .95rem; letter-spacing: 2px; }
+.seal p { margin: 0; color: var(--on-navy-muted); font-size: .95rem; }
+.seal p b { color: var(--on-navy); display: block; font-size: 1.05rem; }
+
+section.s { padding-block: 56px; scroll-margin-top: 60px; }
+section.alt { background: var(--surface); border-block: 1px solid var(--line); }
+.s h2 { font-size: clamp(1.9rem, 4.5vw, 2.8rem); text-transform: uppercase; font-weight: 800; }
+.sub { color: var(--muted); margin: 8px 0 28px; max-width: 60ch; }
+
+.reasons { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; border-top: 2px solid var(--ink); }
+.reasons article { padding: 18px 18px 18px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.reasons h3 { font-size: 1.35rem; text-transform: uppercase; margin-bottom: 6px; }
+.reasons p { margin: 0; color: var(--muted); }
+
+.rates { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.rate { border: 1px solid var(--line); border-radius: var(--r); padding: 20px; background: var(--bg); display: flex; flex-direction: column; gap: 6px; }
+.rate.main { border: 2px solid var(--strong); }
+.rate .tag { font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--strong); }
+.rate .n { font-family: var(--display); font-weight: 800; font-size: 2.6rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.rate .n small { font-family: var(--body); font-size: 1rem; font-weight: 600; color: var(--muted); }
+.rate p { margin: 0; color: var(--muted); }
+
+.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; display: grid; gap: 26px; }
+fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 12px; min-width: 0; }
+legend { font-family: var(--display); font-weight: 700; font-size: 1.35rem; text-transform: uppercase; display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding: 0; }
+legend .step { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 1rem; }
+.pill { font-family: var(--body); font-size: .7rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 3px 9px; border-radius: 99px; background: var(--line); color: var(--muted); }
+.pill.req { background: var(--strong); color: var(--surface); }
+
+.choice { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.choice label { position: relative; cursor: pointer; min-width: 0; }
+.choice input { position: absolute; opacity: 0; inset: 0; }
+.choice span { display: block; height: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 12px 14px; font-weight: 700; }
+.choice small { display: block; color: var(--muted); font-weight: 500; }
+.choice input:checked + span { border-color: var(--strong); background: var(--accent-tint); }
+.choice input:focus-visible + span { outline: 3px solid var(--strong); outline-offset: 2px; }
+.choice.two { grid-template-columns: 1fr 1fr; }
+
+.f { display: grid; gap: 6px; font-weight: 600; font-size: .95rem; min-width: 0; }
+.f input, .f textarea { font: inherit; font-weight: 500; color: var(--ink); background: var(--bg); border: 2px solid var(--line); border-radius: 10px; padding: 11px 13px; width: 100%; }
+.f input:focus, .f textarea:focus { border-color: var(--strong); outline: none; }
+.row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+
+.total { background: var(--navy); color: var(--on-navy); border-radius: 12px; padding: 18px 20px; display: grid; gap: 4px; }
+.total .lbl { color: var(--on-navy-muted); font-size: .85rem; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; }
+.total .amt { font-family: var(--display); font-weight: 800; font-size: clamp(2.3rem, 8vw, 3.4rem); line-height: 1; color: var(--accent-soft); font-variant-numeric: tabular-nums; }
+.total .calc { color: var(--on-navy-muted); font-size: .92rem; font-variant-numeric: tabular-nums; }
+
+.drop { display: grid; place-items: center; text-align: center; border: 2px dashed var(--line); border-radius: 12px; padding: 22px; cursor: pointer; font-weight: 700; background: var(--bg); position: relative; }
+.drop:hover, .drop:focus-within { border-color: var(--strong); }
+.drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.drop small { display: block; color: var(--muted); font-weight: 500; }
+.thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.thumbs figure { margin: 0; position: relative; aspect-ratio: 1; max-width: 100%; border-radius: 10px; overflow: hidden; background: var(--line); }
+.thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumbs button { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border: 0; border-radius: 50%; background: rgba(0,0,0,.65); color: #fff; font-weight: 700; cursor: pointer; }
+.hint { margin: 0; color: var(--muted); font-size: .92rem; }
+.err { margin: 0; color: var(--danger); font-weight: 600; }
+.fine { margin: 0; color: var(--muted); font-size: .82rem; }
+
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.gallery figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.gallery img { display: block; width: 100%; max-width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--line); }
+.gallery figcaption { padding: 10px 14px; font-weight: 600; overflow-wrap: anywhere; }
+.gallery .del { margin: 0 14px 12px; padding: 8px 12px; font-size: .9rem; }
+.empty { border: 2px dashed var(--line); border-radius: var(--r); padding: 28px 18px; text-align: center; color: var(--muted); }
+.uploader { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: grid; gap: 12px; margin-bottom: 18px; }
+.uploader .owner { font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--strong); margin: 0; }
+.done { text-align: center; display: grid; gap: 12px; justify-items: center; }
+.done .ref { font-family: var(--display); font-weight: 800; font-size: 2rem; color: var(--strong); }
+.msg { width: 100%; text-align: left; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: .92rem; margin: 0; user-select: all; }
+.done .acts { display: grid; gap: 10px; width: 100%; }
+
+footer { background: var(--navy); color: var(--on-navy-muted); padding-block: 28px 100px; font-size: .92rem; }
+footer p { margin: 4px 0; }
+.wa-float { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; border-radius: 50%; background: var(--wa); display: grid; place-items: center; box-shadow: 0 8px 22px rgba(0,0,0,.28); z-index: 20; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <a class="nameplate" href="#inicio" aria-label="V+X Constructora, inicio"><span class="vx"><span class="v">V</span><span class="p">+</span><span class="x">X</span></span> <span class="nc">Constructora</span></a>
+    <nav>
+      <a class="l" href="#garantia">Garantía</a>
+      <a class="l" href="#precios">Precios</a>
+      <a class="l" href="#obras">Obras</a>
+      <a class="btn sm" href="#cotizador">Cotizar obra</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero" id="inicio">
+    <div class="wrap">
+      <p class="nameplate lg"><span class="vx"><span class="v">V</span><span class="p">+</span><span class="x">X</span></span> <span class="nc">Constructora</span></p>
+      <p class="kicker">Construcción llave en mano · Refacciones · Humedad</p>
+      <h1>La constructora que <em>firma su garantía</em> ante escribano</h1>
+      <p class="lead">En V+X Constructora te damos <b>garantía total</b>. Cada obra sale con <b>10 años de garantía escrita y certificada por escribano público</b>. Tenemos mucha trayectoria, cumplimos los plazos y un solo responsable te acompaña de principio a fin.</p>
+      <div class="cta">
+        <a class="btn" href="#cotizador">Cotizá tu obra ahora</a>
+        <a class="btn wa js-wa" href="https://wa.me/" target="_blank" rel="noopener">Escribinos por WhatsApp</a>
+      </div>
+      <div class="seal">
+        <div class="years">10<small>AÑOS</small></div>
+        <p><b>Garantía escrita por escribano</b>Si algo falla, respondemos. Queda por escrito y con firma certificada, no es una promesa de palabra.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="s" id="garantia">
+    <div class="wrap">
+      <h2>Por qué elegirnos</h2>
+      <p class="sub">Otras empresas prometen. Nosotros lo firmamos.</p>
+      <div class="reasons">
+        <article><h3>Garantía total</h3><p>10 años de garantía escrita sobre toda la obra, certificada por escribano.</p></article>
+        <article><h3>Mucha trayectoria</h3><p>Años construyendo casas y locales nos permiten anticipar problemas y cumplir lo pactado.</p></article>
+        <article><h3>Llave en mano real</h3><p>Proyecto, materiales, mano de obra y terminaciones. Vos solo recibís la llave.</p></article>
+        <article><h3>Precio claro por m²</h3><p>Cotizás online al instante y sabés cuánto vas a invertir antes de empezar.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="s alt" id="precios">
+    <div class="wrap">
+      <h2>Precios por metro cuadrado</h2>
+      <p class="sub">Valores en dólares por m² de construcción.</p>
+      <div class="rates">
+        <div class="rate main"><span class="tag">Llave en mano</span><span class="n">USD 980 <small>/ m²</small></span><p>Con materiales. Incluye mano de obra, dirección de obra y terminaciones.</p></div>
+        <div class="rate"><span class="tag">Mano de obra</span><span class="n">USD 400 <small>/ m²</small></span><p>Sin materiales. Vos los aportás y nosotros construimos con nuestro equipo.</p></div>
+        <div class="rate"><span class="tag">Refacción y humedad</span><span class="n">Con fotos</span><p>Subí fotos acá o mandalas por WhatsApp y te pasamos el precio exacto.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="s" id="obras">
+    <div class="wrap">
+      <h2>Nuestras obras</h2>
+      <p class="sub">Algunos de los trabajos que entregamos, todos con 10 años de garantía escrita.</p>
+      <form class="uploader" id="uploader" hidden novalidate>
+        <p class="owner">Solo vos ves este panel</p>
+        <label class="drop" for="workPhoto">
+          <input type="file" id="workPhoto" accept="image/jpeg,image/png,image/webp">
+          <span id="workPhotoLabel">Elegí una foto de la obra<small>JPG, PNG o WebP</small></span>
+        </label>
+        <label class="f" for="caption">Título (opcional)<input id="caption" maxlength="120" placeholder="Ej: Casa 140 m² llave en mano, Morón"></label>
+        <p class="err" id="upErr" role="alert" hidden></p>
+        <button class="btn" type="submit" id="upBtn">Subir foto</button>
+      </form>
+      <div class="gallery" id="gallery"></div>
+      <p class="empty" id="galleryEmpty">Pronto vas a ver acá fotos de nuestras obras terminadas.</p>
+    </div>
+  </section>
+
+  <section class="s" id="cotizador">
+    <div class="wrap narrow">
+      <h2>Cotizador automático</h2>
+      <p class="sub">Elegí el servicio, cargá los m² y mirá tu presupuesto estimado al instante.</p>
+
+      <form class="sheet" id="quote" novalidate>
+        <fieldset>
+          <legend><span class="step">1</span> ¿Qué necesitás?</legend>
+          <div class="choice">
+            <label><input type="radio" name="service" id="sv-lm" value="llave_en_mano" checked><span>Construcción llave en mano<small>Obra nueva completa</small></span></label>
+            <label><input type="radio" name="service" id="sv-rf" value="refaccion"><span>Refacción<small>Ampliación, remodelación, arreglos</small></span></label>
+            <label><input type="radio" name="service" id="sv-hu" value="humedad"><span>Humedad<small>Filtraciones, paredes, techos</small></span></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><span class="step">2</span> Superficie y modalidad</legend>
+          <label class="f" for="m2">Metros cuadrados (m²)
+            <input type="number" id="m2" name="m2" min="1" max="100000" step="0.5" inputmode="decimal" value="120">
+          </label>
+          <div class="choice two" id="modes">
+            <label><input type="radio" name="mode" id="md-cm" value="con_materiales" checked><span>Con materiales<small>USD 980 / m²</small></span></label>
+            <label><input type="radio" name="mode" id="md-mo" value="mano_obra"><span>Sin materiales<small>USD 400 / m²</small></span></label>
+          </div>
+        </fieldset>
+
+        <div class="total" aria-live="polite">
+          <span class="lbl">Presupuesto estimado</span>
+          <span class="amt" id="amt">USD 117.600</span>
+          <span class="calc" id="calc">120 m² × USD 980 con materiales</span>
+        </div>
+
+        <fieldset>
+          <legend><span class="step">3</span> Fotos <span class="pill" id="pill">opcional</span></legend>
+          <p class="hint" id="photoHint">Si tenés fotos del terreno o de los planos, subilas para afinar el presupuesto.</p>
+          <label class="drop" for="photos">
+            <input type="file" id="photos" accept="image/*" multiple>
+            Tocá para subir o sacar fotos<small>Hasta 6 fotos</small>
+          </label>
+          <div class="thumbs" id="thumbs"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend><span class="step">4</span> Tus datos</legend>
+          <div class="row">
+            <label class="f" for="name">Nombre<input id="name" name="name" autocomplete="name" maxlength="80"></label>
+            <label class="f" for="phone">Teléfono / WhatsApp<input id="phone" name="phone" type="tel" autocomplete="tel" placeholder="Con código de área" maxlength="20"></label>
+          </div>
+          <label class="f" for="location">Ubicación de la obra<input id="location" name="location" maxlength="120" placeholder="Barrio, ciudad"></label>
+          <label class="f" for="notes">Comentarios<textarea id="notes" name="notes" rows="3" maxlength="1000" placeholder="Contanos qué querés hacer"></textarea></label>
+        </fieldset>
+
+        <p class="err" id="err" role="alert" hidden></p>
+        <button class="btn block" type="submit">Pedir presupuesto</button>
+        <p class="fine">Precio estimado de referencia. El presupuesto final se confirma tras la visita técnica. Todas las obras incluyen 10 años de garantía escrita ante escribano.</p>
+      </form>
+
+      <div class="sheet done" id="done" hidden>
+        <h3>Solicitud lista</h3>
+        <span class="ref" id="ref"></span>
+        <p class="hint">Enviá este mensaje por WhatsApp para que te contactemos. <span id="photoNote"></span></p>
+        <pre class="msg" id="msg"></pre>
+        <div class="acts">
+          <a class="btn wa block" id="sendWa" href="https://wa.me/" target="_blank" rel="noopener">Enviar por WhatsApp</a>
+          <button class="btn ghost block" type="button" id="copy">Copiar mensaje</button>
+          <button class="btn ghost block" type="button" id="again">Hacer otra cotización</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="nameplate"><span class="vx"><span class="v">V</span><span class="p">+</span><span class="x">X</span></span> <span class="nc">Constructora</span></p>
+    <p>Construcción llave en mano y refacciones</p>
+    <p>Garantía total: 10 años escrita y certificada por escribano.</p>
+  </div>
+</footer>
+
+<a class="wa-float js-wa" href="https://wa.me/" target="_blank" rel="noopener" aria-label="Escribinos por WhatsApp">
+  <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><path fill="#fff" d="M16 3a13 13 0 0 0-11.2 19.6L3 29l6.6-1.7A13 13 0 1 0 16 3zm0 23.7a10.7 10.7 0 0 1-5.5-1.5l-.4-.2-3.9 1 1-3.8-.3-.4A10.7 10.7 0 1 1 16 26.7zm5.9-8c-.3-.2-1.9-1-2.2-1s-.5-.2-.7.2-.8 1-1 1.2-.4.2-.7 0a8.8 8.8 0 0 1-4.4-3.8c-.3-.6.3-.5 1-1.7.1-.2 0-.4 0-.6l-1-2.4c-.3-.6-.5-.5-.7-.5h-.6a1.2 1.2 0 0 0-.9.4 3.7 3.7 0 0 0-1.1 2.7 6.4 6.4 0 0 0 1.3 3.4 14.7 14.7 0 0 0 5.7 5c2.1.9 2.9 1 4 .8a3.4 3.4 0 0 0 2.2-1.6 2.8 2.8 0 0 0 .2-1.6c-.1-.2-.3-.3-.6-.4z"/></svg>
+</a>
+
+<script>
+(() => {
+  // Número de WhatsApp de la empresa (con código de país, sin +). Vacío: WhatsApp pide elegir el contacto.
+  const WHATSAPP = '';
+  const PRICES = { con_materiales: 980, mano_obra: 400 };
+  const NAMES = { llave_en_mano: 'Construcción llave en mano', refaccion: 'Refacción', humedad: 'Tratamiento de humedad' };
+  const MAX = 6;
+  const $ = (id) => document.getElementById(id);
+  const form = $('quote');
+  let photos = [];
+
+  const usd = (n) => 'USD ' + Math.round(n).toLocaleString('es-AR');
+  const wa = (text) => 'https://wa.me/' + WHATSAPP + '?text=' + encodeURIComponent(text);
+  document.querySelectorAll('.js-wa').forEach((a) => { a.href = wa('Hola V+X Constructora, quiero pedir un presupuesto.'); });
+
+  function state() {
+    const fd = new FormData(form);
+    return { service: fd.get('service'), mode: fd.get('mode'), m2: parseFloat(fd.get('m2')) };
+  }
+  function estimate({ service, mode, m2 }) {
+    if (service === 'humedad' || !(m2 >= 1)) return null;
+    return m2 * PRICES[mode];
+  }
+
+  function update() {
+    const s = state();
+    const needsPhotos = s.service !== 'llave_en_mano';
+    $('modes').hidden = s.service === 'humedad';
+    $('pill').textContent = needsPhotos ? 'necesarias' : 'opcional';
+    $('pill').classList.toggle('req', needsPhotos);
+    $('photoHint').textContent = needsPhotos
+      ? 'Para refacciones y humedad necesitamos ver fotos. Subilas acá o mandalas por WhatsApp.'
+      : 'Si tenés fotos del terreno o de los planos, subilas para afinar el presupuesto.';
+    if (!(s.m2 >= 1)) { $('amt').textContent = 'USD 0'; $('calc').textContent = 'Ingresá los m² para calcular.'; return; }
+    if (s.service === 'humedad') {
+      $('amt').textContent = 'A evaluar';
+      $('calc').textContent = s.m2.toLocaleString('es-AR') + ' m² afectados · el precio depende del origen de la humedad';
+      return;
+    }
+    $('amt').textContent = usd(estimate(s));
+    $('calc').textContent = s.m2.toLocaleString('es-AR') + ' m² × ' + usd(PRICES[s.mode]) + (s.mode === 'mano_obra' ? ' sin materiales' : ' con materiales')
+      + (s.service === 'refaccion' ? ' · se ajusta al ver las fotos' : '');
+  }
+
+  function renderThumbs() {
+    const box = $('thumbs');
+    box.querySelectorAll('img').forEach((i) => URL.revokeObjectURL(i.src));
+    box.textContent = '';
+    photos.forEach((file, i) => {
+      const fig = document.createElement('figure');
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(file); img.alt = 'Foto ' + (i + 1);
+      const del = document.createElement('button');
+      del.type = 'button'; del.textContent = '×'; del.setAttribute('aria-label', 'Quitar foto ' + (i + 1));
+      del.addEventListener('click', () => { photos.splice(i, 1); renderThumbs(); });
+      fig.append(img, del); box.append(fig);
+    });
+  }
+
+  const showErr = (m) => { $('err').textContent = m; $('err').hidden = !m; };
+
+  form.addEventListener('input', update);
+  form.addEventListener('change', update);
+  $('photos').addEventListener('change', (e) => {
+    const added = Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'));
+    photos = photos.concat(added).slice(0, MAX);
+    e.target.value = '';
+    renderThumbs();
+  });
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    showErr('');
+    const s = state();
+    const name = $('name').value.trim(), phone = $('phone').value.trim(), loc = $('location').value.trim(), notes = $('notes').value.trim();
+    if (!(s.m2 >= 1)) return showErr('Ingresá los metros cuadrados de la obra.');
+    if (name.length < 2 || phone.replace(/\D/g, '').length < 8 || loc.length < 2) return showErr('Completá tu nombre, un teléfono con código de área y la ubicación de la obra.');
+    const total = estimate(s);
+    const ref = '#' + Math.random().toString(36).slice(2, 8).toUpperCase();
+    const lines = [
+      'Hola V+X Constructora, quiero un presupuesto (' + ref + ').',
+      'Servicio: ' + NAMES[s.service],
+      'Superficie: ' + s.m2.toLocaleString('es-AR') + ' m²' + (s.service === 'humedad' ? ' afectados' : ''),
+    ];
+    if (s.service !== 'humedad') lines.push('Modalidad: ' + (s.mode === 'mano_obra' ? 'sin materiales (USD 400/m²)' : 'con materiales (USD 980/m²)'));
+    lines.push('Estimado: ' + (total != null ? usd(total) : 'a evaluar con fotos'));
+    lines.push('Nombre: ' + name, 'Teléfono: ' + phone, 'Obra en: ' + loc);
+    if (notes) lines.push('Comentarios: ' + notes);
+    if (photos.length) lines.push('Les adjunto ' + photos.length + (photos.length === 1 ? ' foto.' : ' fotos.'));
+    else if (s.service !== 'llave_en_mano') lines.push('Les paso las fotos por acá.');
+    const text = lines.join('\n');
+    $('ref').textContent = ref;
+    $('msg').textContent = text;
+    $('sendWa').href = wa(text);
+    $('photoNote').textContent = photos.length ? 'Después adjuntá en el chat las ' + photos.length + ' fotos que elegiste.' : '';
+    form.hidden = true; $('done').hidden = false;
+    $('done').scrollIntoView({ block: 'start' });
+  });
+
+  $('copy').addEventListener('click', () => {
+    const text = $('msg').textContent;
+    const btn = $('copy');
+    const ok = () => { btn.textContent = 'Mensaje copiado'; setTimeout(() => { btn.textContent = 'Copiar mensaje'; }, 2000); };
+    const fallback = () => { const r = document.createRange(); r.selectNodeContents($('msg')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); btn.textContent = 'Texto seleccionado'; };
+    try { navigator.clipboard.writeText(text).then(ok, fallback); } catch (_) { fallback(); }
+  });
+
+  $('again').addEventListener('click', () => {
+    form.reset(); photos = []; renderThumbs(); update();
+    $('done').hidden = true; form.hidden = false;
+  });
+
+  update();
+
+  // Galería "Nuestras obras": fotos guardadas en el artefacto, cargadas solo por quien puede editarlo.
+  (async () => {
+    const db = window.claude?.use ? await window.claude.use('db') : null;
+    const assets = window.claude?.use ? await window.claude.use('assets') : null;
+    if (!db) { $('obras').hidden = true; document.querySelectorAll('a[href="#obras"]').forEach((l) => { l.hidden = true; }); return; }
+    const col = db.collection('obras');
+    const canUpload = !!assets;
+    $('uploader').hidden = !canUpload;
+    $('galleryEmpty').textContent = canUpload
+      ? 'Todavía no subiste fotos. Usá el panel de arriba para cargar la primera.'
+      : 'Pronto vas a ver acá fotos de nuestras obras terminadas.';
+
+    col.orderBy('created', 'desc').onSnapshot((snap) => {
+      const box = $('gallery');
+      box.textContent = '';
+      $('galleryEmpty').hidden = !snap.empty;
+      snap.docs.forEach((d) => {
+        const w = d.data();
+        if (!w || typeof w.asset !== 'string') return;
+        const fig = document.createElement('figure');
+        const img = document.createElement('img');
+        img.src = '/_blob/' + w.asset;
+        img.alt = w.caption || 'Obra de V+X Constructora';
+        img.loading = 'lazy';
+        fig.append(img);
+        if (w.caption) { const c = document.createElement('figcaption'); c.textContent = String(w.caption); fig.append(c); }
+        if (canUpload) {
+          const del = document.createElement('button');
+          del.type = 'button'; del.className = 'btn ghost del'; del.textContent = 'Borrar';
+          del.addEventListener('click', async () => {
+            if (del.dataset.armed !== '1') { del.dataset.armed = '1'; del.textContent = 'Tocá de nuevo para borrar'; return; }
+            del.disabled = true;
+            try { await col.doc(d.id).delete(); await assets.delete(w.asset).catch(() => {}); }
+            catch (_) { del.disabled = false; del.textContent = 'No se pudo borrar'; }
+          });
+          fig.append(del);
+        }
+        box.append(fig);
+      });
+    }, () => { $('galleryEmpty').textContent = 'No se pudieron cargar las fotos. Recargá la página.'; });
+
+    if (!canUpload) return;
+    const upErr = (m) => { $('upErr').textContent = m; $('upErr').hidden = !m; };
+    const resetLabel = () => { $('workPhotoLabel').innerHTML = 'Elegí una foto de la obra<small>JPG, PNG o WebP</small>'; };
+    $('workPhoto').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      if (f) $('workPhotoLabel').textContent = f.name; else resetLabel();
+    });
+
+    // Achica la foto a 1800 px y la pasa a JPEG para que cargue rápido; si falla, sube la original.
+    async function shrink(file) {
+      try {
+        const bmp = await createImageBitmap(file);
+        const k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+        const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+        return blob || file;
+      } catch (_) { return file; }
+    }
+
+    $('uploader').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      upErr('');
+      const file = $('workPhoto').files[0];
+      if (!file) return upErr('Elegí una foto para subir.');
+      if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return upErr('Usá una foto JPG, PNG o WebP.');
+      const btn = $('upBtn');
+      btn.disabled = true; btn.textContent = 'Subiendo…';
+      try {
+        const blob = await shrink(file);
+        const up = await assets.upload(blob, { type: blob.type || file.type });
+        await col.add({ asset: up.id, caption: $('caption').value.trim().slice(0, 120), created: Date.now() });
+        $('uploader').reset(); resetLabel();
+      } catch (ex) {
+        const code = ex && ex.code;
+        upErr(code === 'too_large' ? 'La foto es demasiado pesada. Probá con una más chica.'
+          : code === 'quota_or_state' ? 'Se llenó el espacio de fotos. Borrá alguna para subir otra.'
+          : code === 'rate_limited' ? 'Subiste muchas fotos seguidas. Esperá un momento y probá de nuevo.'
+          : 'No se pudo subir la foto. Probá de nuevo.');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Subir foto';
+      }
+    });
+  })();
+})();
+</script>
+</body>
+</html>
