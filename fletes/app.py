@@ -825,11 +825,12 @@ def create_app(test_config=None):
         items = []
         for r in rows:
             item = dict(r)
-            item['docs'] = json.loads(item['docs'])
+            item['documents'] = [{'label': DRIVER_DOCS[k], 'url': '/api/admin/docs/' + key, 'pdf': key.endswith('.pdf')}
+                                 for k, key in json.loads(item.pop('docs')).items()]
             item['base_city_label'] = CITIES[item['base_city']]['label']
             item['vehicle_label'] = VEHICLES[item['vehicle']]['label']
             items.append(item)
-        return jsonify(items=items, doc_labels=DRIVER_DOCS)
+        return jsonify(items=items)
 
     @app.get('/api/admin/docs/<key>')
     def admin_doc(key):

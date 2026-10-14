@@ -175,12 +175,13 @@ class FletesTests(unittest.TestCase):
         self.assertEqual(stranger.get('/api/driver/jobs').status_code, 403)  # pending review
         self.assertEqual(stranger.get('/api/admin/drivers').status_code, 403)
         admin = self.admin()
-        docs = admin.get('/api/admin/drivers').json['items'][0]['docs']
-        self.assertTrue(docs['insurance'].endswith('.pdf'))
-        doc = admin.get('/api/admin/docs/' + docs['selfie'])
+        docs = {d['label']: d for d in admin.get('/api/admin/drivers').json['items'][0]['documents']}
+        self.assertTrue(docs['Póliza de seguro vigente']['pdf'])
+        selfie = docs['Selfie sosteniendo el DNI']['url']
+        doc = admin.get(selfie)
         self.assertEqual(doc.status_code, 200)
         doc.close()
-        self.assertEqual(stranger.get('/api/admin/docs/' + docs['selfie']).status_code, 403)
+        self.assertEqual(stranger.get(selfie).status_code, 403)
         self.assertEqual(self.post(admin, '/api/admin/drivers/x', json={'action': 'reject'}).status_code, 400)  # reason required
 
     def test_driver_documents_validated(self):

@@ -27,6 +27,22 @@ function toast(message) {
   clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('show'), 3800);
 }
 
+// In-page confirm/prompt: native dialogs are blocked in embedded previews and look out of place on phones.
+function ask(message, { input = false, ok = 'Aceptar', cancel = 'Cancelar', placeholder = '' } = {}) {
+  return new Promise(resolve => {
+    const field = input && el('textarea', { maxlength: 300, placeholder, 'aria-label': message });
+    const dialog = el('dialog', { class: 'ask' });
+    const close = value => { dialog.close(); dialog.remove(); resolve(value); };
+    dialog.append(el('form', { class: 'stack', method: 'dialog', onsubmit: e => { e.preventDefault(); close(input ? field.value.trim() : true); } },
+      el('p', {}, message), field,
+      el('div', { class: 'row' }, el('button', { class: 'btn', type: 'submit' }, ok), el('button', { class: 'btn ghost', type: 'button', onclick: () => close(null) }, cancel))));
+    dialog.addEventListener('cancel', e => { e.preventDefault(); close(null); });
+    document.body.append(dialog);
+    dialog.showModal();
+    (field || dialog.querySelector('button')).focus();
+  });
+}
+
 async function api(path, { method = 'GET', body, form } = {}) {
   const opts = { method, credentials: 'same-origin', headers: {} };
   if (method !== 'GET') opts.headers['X-CSRF-Token'] = state.csrf;
@@ -273,9 +289,9 @@ async function viewShipment(id) {
   blocks.push(el('div', { class: 'card' }, el('h3', {}, 'Seguimiento'),
     el('ol', { class: 'timeline' }, (s.events || []).map(ev => el('li', {}, el('span', {}, statusText(ev.status)), el('small', { class: 'muted' }, fmtTime(ev.at)))))));
   if (s.mine && ['pending_payment', 'paid', 'assigned'].includes(s.status)) {
-    blocks.push(el('button', { class: 'btn danger', onclick: e => {
+    blocks.push(el('button', { class: 'btn danger', onclick: async e => {
       const warn = s.status === 'pending_payment' ? '¿Cancelar este pedido?' : '¿Cancelar el envío? Te devolvemos el pago completo a tu medio de pago.';
-      if (confirm(warn)) busy(e.target, async () => { await api(`/api/shipments/${s.id}/cancel`, { method: 'POST' }); toast('Envío cancelado.'); router(); });
+      if (await ask(warn, { ok: 'Sí, cancelar', cancel: 'No' })) busy(e.target, async () => { await api(`/api/shipments/${s.id}/cancel`, { method: 'POST' }); toast('Envío cancelado.'); router(); });
     } }, 'Cancelar envío'));
   }
   $view.replaceChildren(...blocks);
@@ -288,7 +304,7 @@ function payCard(s) {
   const pay = method => e => busy(e.target, async () => {
     const r = await api(`/api/shipments/${s.id}/pay`, { method: 'POST', body: { method } });
     if (r.url) { location.href = r.url; return; }
-    if (r.demo && confirm('Modo demo: Mercado Pago no está configurado. ¿Simular un pago aprobado?')) {
+    if (r.demo && await ask(`Modo demo: Mercado Pago no está configurado. ¿Simular un pago aprobado de ${money(s.price)}${method === 'card' ? ' con tarjeta' : ''}?`, { ok: 'Aprobar pago' })) {
       await api(`/api/shipments/${s.id}/demo-pay`, { method: 'POST', body: { method } });
       toast('Pago simulado acreditado.'); router();
     }
@@ -445,7 +461,7 @@ function tripCard(t, refresh) {
       el('a', { class: 'btn ghost', href: waLink(t.receiver_phone, `Hola ${t.receiver_name}, soy el chofer de Fletá del envío ${t.code}.`), target: '_blank', rel: 'noopener' }, 'WhatsApp quien recibe')),
     t.status === 'assigned' && el('div', { class: 'row' },
       el('button', { class: 'btn', onclick: act('pickup') }, 'Ya retiré la carga'),
-      el('button', { class: 'btn ghost', onclick: e => confirm('¿Liberar el viaje? Vuelve a quedar disponible para otros choferes.') && act('release')(e) }, 'Liberar viaje')),
+      el('button', { class: 'btn ghost', onclick: async e => { const b = e.target; if (await ask('¿Liberar el viaje? Vuelve a quedar disponible para otros choferes.', { ok: 'Liberar' })) act('release')({ target: b }); } }, 'Liberar viaje')),
     t.status === 'in_transit' && el('div', { class: 'row' }, pin,
       el('button', { class: 'btn', onclick: e => act('deliver', { pin: pin.value.trim() })(e) }, 'Confirmar entrega')));
 }
@@ -463,22 +479,25 @@ async function viewAdmin(tab = 'pending') {
       el('div', { class: 'row between' }, el('a', { class: 'route', href: '#/envio/' + s.id }, `${s.code} · ${s.origin_label} → ${s.destination_label}`), statusBadge(s)),
       el('span', { class: 'muted' }, `${money(s.price)} · ${s.payment_method || 'sin pago'} · cliente ${s.client.name} (${s.client.phone})`),
       s.refund_status === 'pending' && el('div', { class: 'row' }, el('span', { class: 'badge warn' }, 'Devolver dinero'),
-        el('button', { class: 'btn ghost', onclick: e => confirm('¿Ya hiciste la devolución desde Mercado Pago?') && busy(e.target, async () => {
+        el('button', { class: 'btn ghost', onclick: async e => { const b = e.target; if (await ask('¿Ya hiciste la devolución desde Mercado Pago?', { ok: 'Sí, ya la hice' })) busy(b, async () => {
           await api(`/api/admin/shipments/${s.id}/refunded`, { method: 'POST' }); viewAdmin(tab);
-        }) }, 'Marcar devuelto')))) : [el('div', { class: 'card' }, 'Nada por acá.')]));
+        }); } }, 'Marcar devuelto')))) : [el('div', { class: 'card' }, 'Nada por acá.')]));
     return;
   }
-  const { items, doc_labels } = await api('/api/admin/drivers?status=' + tab);
-  const review = (uid, action) => e => {
-    const note = action === 'approve' ? '' : prompt(action === 'reject' ? 'Motivo del rechazo (lo ve el chofer):' : 'Motivo de la suspensión:');
+  const { items } = await api('/api/admin/drivers?status=' + tab);
+  const review = (uid, action) => async e => {
+    const b = e.target;
+    const note = action === 'approve' ? '' : await ask(action === 'reject' ? 'Motivo del rechazo (lo ve el chofer):' : 'Motivo de la suspensión:',
+      { input: true, ok: action === 'reject' ? 'Rechazar' : 'Suspender', placeholder: 'Ej. la foto del DNI está borrosa' });
     if (note === null) return;
-    busy(e.target, async () => { await api('/api/admin/drivers/' + uid, { method: 'POST', body: { action, note } }); toast('Guardado.'); viewAdmin(tab); });
+    busy(b, async () => { await api('/api/admin/drivers/' + uid, { method: 'POST', body: { action, note } }); toast('Guardado.'); viewAdmin(tab); });
   };
   body.replaceChildren(...(items.length ? items.map(d => el('div', { class: 'card item' },
     el('div', { class: 'row between' }, el('strong', {}, d.name), el('span', { class: 'muted' }, d.email + ' · ' + d.phone)),
     el('span', {}, `CUIL ${d.cuil} · ${d.vehicle_label} ${d.vehicle_model} · Patente ${d.plate} · Base ${d.base_city_label}${d.long_distance ? ' · larga distancia' : ''}`),
     el('span', { class: 'muted' }, `Licencia vence ${d.license_expiry} · Seguro vence ${d.insurance_expiry}`),
-    el('div', { class: 'docs' }, Object.entries(d.docs).map(([k, key]) => el('a', { class: 'btn ghost', href: '/api/admin/docs/' + key, target: '_blank', rel: 'noopener' }, doc_labels[k]))),
+    el('div', { class: 'docs' }, d.documents.map(doc => el('a', { class: 'doc', href: doc.url, target: '_blank', rel: 'noopener' },
+      doc.pdf ? el('span', { class: 'pdf' }, 'PDF') : el('img', { src: doc.url, alt: doc.label, loading: 'lazy' }), el('small', {}, doc.label)))),
     el('p', { class: 'muted' }, 'Compará la selfie con la foto del DNI, que nombre y CUIL coincidan en todos los documentos, que la patente de la cédula sea la declarada y que el certificado de antecedentes sea reciente y sin registros.'),
     el('div', { class: 'row' },
       tab === 'pending' && el('button', { class: 'btn', onclick: review(d.user_id, 'approve') }, 'Aprobar'),
@@ -511,6 +530,12 @@ async function returnFromPayment() {
   }
   // Admin tabs live in the hash: #/admin/<tab>
   routes.admin = arg => viewAdmin(arg || 'pending');
+  // The demo bar switches accounts without reloading the page.
+  window.addEventListener('fleta:session', async () => {
+    const s = await api('/api/session');
+    Object.assign(state, { csrf: s.csrf, user: s.user, quote: null });
+    router();
+  });
   await returnFromPayment();
   window.addEventListener('hashchange', router);
   router();
