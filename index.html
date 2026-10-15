@@ -7,8 +7,8 @@
 <meta name="description" content="Particulares que ya viajan ofrecen los asientos libres de su auto. Sin tarifas: se comparten los gastos de combustible y alguna comida. Contacto directo con el conductor.">
 <meta name="theme-color" content="#17409a">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/styles.css?v=15">
-<script src="assets/app.js?v=15" defer></script>
+<link rel="stylesheet" href="assets/styles.css?v=17">
+<script src="assets/app.js?v=17" defer></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true">
@@ -136,7 +136,7 @@
     <div class="wrap">
       <h1 id="t-admin">Administrar</h1>
       <form class="card form narrow" id="claim" hidden>
-        <p>Si sos el dueño del sitio, ingresá el código de administración. Solo se usa una vez: después, desde acá podés nombrar a otros administradores.</p>
+        <p>Si sos el dueño del sitio, ingresá el código de administración. Después, desde acá podés nombrar a otros administradores. Si perdiste el acceso a tu cuenta de administración, creá una cuenta nueva y volvé a poner el código.</p>
         <label>Código de administración<input name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX"></label>
         <p class="form-error" role="alert" hidden></p>
         <button class="btn btn-big" type="submit">Activar administración</button>
@@ -148,6 +148,11 @@
           <p class="stat"><strong id="st-drivers">–</strong>usuarios</p>
           <p class="stat alert"><strong id="st-reports">–</strong>denuncias abiertas</p>
         </div>
+        <form class="card form contact-form" id="contact-form" novalidate>
+          <label>Tu WhatsApp para quien se olvida la contraseña<input name="phone" type="tel" autocomplete="tel" placeholder="11 2345 6789"><small>Aparece en Entrar como "Escribirle por WhatsApp". Dejalo vacío para sacarlo.</small></label>
+          <p class="form-error" role="alert" hidden></p>
+          <button class="btn btn-sm" type="submit">Guardar</button>
+        </form>
         <div class="tabs" role="tablist" id="admin-tabs" aria-label="Secciones de administración">
           <button type="button" role="tab" id="tab-admin-reports" aria-controls="pane-reports" data-tab="reports" aria-selected="true">Denuncias</button>
           <button type="button" role="tab" id="tab-admin-ratings" aria-controls="pane-ratings" data-tab="ratings" aria-selected="false" tabindex="-1">Calificaciones</button>
@@ -214,6 +219,8 @@
         <details class="password-box">
           <summary>Cambiar contraseña</summary>
           <form class="name-form" id="password-form" novalidate>
+            <input name="username" autocomplete="username" hidden readonly>
+            <p class="small" id="password-google" hidden>Tu cuenta se creó con Google, que ya no se usa. Elegí una contraseña para entrar con tu correo la próxima vez.</p>
             <label>Contraseña actual<input name="current" type="password" required autocomplete="current-password"></label>
             <label>Contraseña nueva<input name="password" type="password" required minlength="10" autocomplete="new-password"><small>Mínimo 10 caracteres.</small></label>
             <p class="form-error" role="alert" hidden></p>
@@ -302,11 +309,12 @@
         <label>Contraseña<input name="password" type="password" required minlength="10" autocomplete="current-password"></label>
         <p class="form-error" role="alert" hidden></p>
         <button class="btn btn-big" type="submit">Entrar</button>
-        <p class="muted small">¿Te olvidaste la contraseña? Avisale a la administración del sitio y te da una nueva.</p>
+        <p class="muted small">¿Te olvidaste la contraseña? Avisale a la administración del sitio y te da una nueva.
+          <a class="forgot-link" id="forgot-link" target="_blank" rel="noopener" hidden>Escribirle por WhatsApp</a></p>
       </form>
       <form class="card form" id="register" role="tabpanel" aria-labelledby="tab-register" hidden>
         <label>Nombre<input name="name" required maxlength="80" autocomplete="name"><small>Es el que ven los demás en tus viajes y opiniones.</small></label>
-        <label>Correo o celular<input name="login" required autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="tu@correo.com o 11 2345 6789"><small>El celular con código de área, sin 0 ni 15. No se muestra a nadie: es solo para entrar.</small></label>
+        <label>Correo o celular<input name="login" required autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="tu@correo.com o 11 2345 6789"><small>El celular con código de área, sin 0 ni 15. Es para entrar: solo se ve si lo ponés como teléfono de un viaje.</small></label>
         <label>Contraseña<input name="password" type="password" required minlength="10" autocomplete="new-password"><small>Mínimo 10 caracteres.</small></label>
         <p class="form-error" role="alert" hidden></p>
         <button class="btn btn-big" type="submit">Crear cuenta</button>

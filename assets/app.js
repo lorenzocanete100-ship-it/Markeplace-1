@@ -10,7 +10,7 @@ const NEW_ACCOUNT_DAYS = 7;   // en Calificaciones se marcan las hechas con cuen
 const ROLE_TEXT = { driver: 'como conductor', rider: 'como acompañante' };
 const REASONS = { precio: 'Cobra un precio o parece un negocio', datos: 'Teléfono o datos falsos', ofensivo: 'Ofensivo o peligroso', otro: 'Otro motivo' };
 
-const state = { csrf: '', today: '', user: null, trips: [], mine: [], tripsLoaded: false, next: 'viajes', returnTo: '' };
+const state = { csrf: '', today: '', user: null, contact: '', trips: [], mine: [], tripsLoaded: false, next: 'viajes', returnTo: '' };
 const $ = (selector, root = document) => root.querySelector(selector);
 
 async function api(action, { body, form, query = '', retried = false } = {}) {
@@ -47,6 +47,27 @@ async function loadSession() {
   state.csrf = session.csrf;
   state.today = session.today;
   state.user = session.user;
+  state.contact = session.contact || '';
+  renderContact();
+}
+
+// WhatsApp de la administración: aparece en Entrar, para quien se olvida la contraseña.
+function renderContact() {
+  const link = $('#forgot-link');
+  link.hidden = !state.contact;
+  link.href = state.contact ? `https://wa.me/${state.contact.slice(1)}?text=${encodeURIComponent('Hola, me olvidé la contraseña de Asiento Vacío. Mi cuenta es: ')}` : '';
+  $('#contact-form').phone.value = state.contact;
+}
+
+async function saveContact(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await busy(form, async () => {
+    const result = await api('admin_contact', { body: { phone: form.phone.value } });
+    state.contact = result.contact;
+    renderContact();
+    toast(state.contact ? 'Listo: tu WhatsApp aparece en Entrar.' : 'Listo: sacaste tu WhatsApp de Entrar.');
+  });
 }
 
 /* Fechas */
@@ -94,12 +115,23 @@ function ask(question, ok) {
 }
 
 // Las cuentas con celular se guardan como +549…; las de correo, con su correo.
-const isPhone = (login) => String(login || '').startsWith('+');
+const isPhone = (login) => /^\+\d+$/.test(String(login || ''));
 
-// Aviso dibujado en la página, con un dato para copiar (por ejemplo, una contraseña nueva).
-function tell(message, value, note) {
+// Para buscar un celular como lo escribió la persona ("011 15 2345 6789"): se comparan los últimos
+// 6 dígitos, que son del número y no de la característica ni del 15.
+function phoneMatch(q, phones) {
+  const digits = q.replace(/\D/g, '');
+  return /^[\d\s()+\-.]+$/.test(q) && digits.length >= 6
+    && phones.some((phone) => String(phone || '').replace(/\D/g, '').endsWith(digits.slice(-6)));
+}
+
+// Aviso dibujado en la página, con un dato para copiar (por ejemplo, una contraseña nueva) y,
+// si hace falta, un enlace para mandarlo.
+function tell(message, value, note, link) {
   const dialog = $('#ask-dlg');
-  $('#ask-text').replaceChildren(message, el('strong', { className: 'tell-value', textContent: value }), el('span', { className: 'muted', textContent: note }));
+  $('#ask-text').replaceChildren(...[message, el('strong', { className: 'tell-value', textContent: value }),
+    link && el('a', { className: 'btn btn-sm', href: link.href, target: '_blank', rel: 'noopener', textContent: link.text }),
+    el('span', { className: 'muted', textContent: note })].filter(Boolean));
   $('#ask-ok').textContent = 'Listo';
   $('#ask-ok').classList.remove('btn-danger');
   $('#ask-cancel').hidden = true;
@@ -515,7 +547,8 @@ function tripBadges(trip) {
 
 function renderAdminTrips() {
   const q = normalize($('#filter-trips').value);
-  const list = admin.trips.filter((t) => !q || normalize([t.origin, t.destination, t.driver, t.phone, t.owner_email].join(' ')).includes(q));
+  const list = admin.trips.filter((t) => !q || normalize([t.origin, t.destination, t.driver, t.phone, t.owner_email].join(' ')).includes(q)
+    || phoneMatch(q, [t.phone, t.owner_email]));
   const rows = list.slice(0, 200).map((t) => el('article', { className: 'item' },
     el('div', { className: 'badges' }, ...tripBadges(t)),
     el('p', { className: 'item-title', textContent: `${t.origin} → ${t.destination}` }),
@@ -553,7 +586,7 @@ const suspendedBadge = (u) => badge(Number(u.blocked_until)
 function renderUsers() {
   const q = normalize($('#filter-users').value);
   const role = ROLE_FILTERS[$('#filter-role').value] || (() => true);
-  const list = admin.users.filter((u) => (!q || normalize(`${u.name} ${u.email}`).includes(q)) && role(u));
+  const list = admin.users.filter((u) => (!q || normalize(`${u.name} ${u.email}`).includes(q) || phoneMatch(q, [u.email])) && role(u));
   const rows = list.map((u) => {
     const self = u.id === state.user.id;
     const isAdmin = Number(u.is_admin) === 1;
@@ -563,6 +596,8 @@ function renderUsers() {
       el('div', { className: 'badges' },
         badge(Number(u.trips_total) > 0 ? 'Conductor' : 'Acompañante', 'off'),
         isAdmin && badge('Administración'),
+        // Cuentas de cuando se entraba con Google: necesitan una contraseña nueva para entrar.
+        Number(u.no_password) === 1 && badge('Sin contraseña (era de Google)', 'warn'),
         blocked && suspendedBadge(u), self && badge('Vos', 'off')),
       el('p', { className: 'item-title' }, avatar(u.photo, u.name, 'xs'), u.name),
       el('p', { className: 'item-meta' }, `${u.email} · desde el ${when(u.created)} · ${trips === 1 ? '1 viaje' : `${trips} viajes`} · `,
@@ -572,7 +607,7 @@ function renderUsers() {
         button('Ver viajes', () => showTripsOf(u.email)),
         u.photo && button('Quitar foto', () => adminAction('admin_user', { id: u.id, action: 'remove_photo' },
           { question: `¿Quitar la foto de perfil de ${u.name}?`, ok: 'Quitar foto', done: 'Foto quitada.' })),
-        !self && button('Contraseña nueva', () => resetPassword(u)),
+        !self && !isAdmin && button('Contraseña nueva', () => resetPassword(u)),
         !self && !isAdmin && (blocked
           ? button('Levantar suspensión', () => adminAction('admin_user', { id: u.id, action: 'unblock' }, { done: 'Suspensión levantada.' }))
           : button('Suspender', () => openSuspend(u), 'btn-danger')),
@@ -584,7 +619,8 @@ function renderUsers() {
   $('#admin-users').replaceChildren(...(rows.length ? rows : [emptyRow('No hay usuarios que coincidan.')]));
 }
 
-// Si alguien se olvida la contraseña, la administración le da una nueva para que se la pase por WhatsApp.
+// Si alguien se olvida la contraseña, la administración le da una nueva. Se manda solo al celular o al
+// correo de la cuenta: quien la pide desde otro número puede no ser el dueño.
 async function resetPassword(u) {
   if (!(await ask(`¿Darle una contraseña nueva a ${u.name} (${u.email})? La que tenía deja de servir.`, 'Dar contraseña nueva'))) return;
   let result;
@@ -594,8 +630,14 @@ async function resetPassword(u) {
     toast(error.message);
     return;
   }
+  const text = `Hola ${u.name}, tu contraseña nueva de Asiento Vacío es ${result.password}. Entrá con ${u.email} y cambiala en Mi perfil.`;
+  const link = isPhone(u.email)
+    ? { href: `https://wa.me/${u.email.slice(1)}?text=${encodeURIComponent(text)}`, text: 'Mandar por WhatsApp a su celular' }
+    : { href: `mailto:${u.email}?subject=${encodeURIComponent('Tu contraseña nueva de Asiento Vacío')}&body=${encodeURIComponent(text)}`,
+      text: 'Mandar a su correo' };
   await tell(`La contraseña nueva de ${u.name} es:`, result.password,
-    'Pasásela por WhatsApp o por teléfono. Después la puede cambiar en Mi perfil.');
+    `Mandásela solo ${isPhone(u.email) ? 'a su celular' : 'a su correo'} (${u.email}), no a otro número: así sabés que la recibe la persona de la cuenta. Después la puede cambiar en Mi perfil.`,
+    link);
 }
 
 function openSuspend(u) {
@@ -766,7 +808,11 @@ async function shrinkPhoto(file) {
     const canvas = Object.assign(document.createElement('canvas'), {
       width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale),
     });
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const context = canvas.getContext('2d');
+    // JPEG no tiene transparencia: el fondo transparente de un PNG quedaría negro.
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
     return blob || file;
   } catch {
@@ -805,17 +851,34 @@ async function deletePhoto() {
   await photoAction('photo_delete', null, 'Listo: quitaste tu foto.');
 }
 
+// Las cuentas que eran de Google no tienen contraseña: eligen una sin escribir la actual.
+function renderPasswordForm() {
+  const form = $('#password-form');
+  const noPassword = Boolean(state.user.noPassword);
+  form.username.value = state.user.email;  // para que el gestor de contraseñas sepa de qué cuenta es
+  form.current.closest('label').hidden = noPassword;
+  form.current.disabled = noPassword;
+  $('#password-google').hidden = !noPassword;
+  if (noPassword) form.closest('details').open = true;
+}
+
 async function changePassword(event) {
   event.preventDefault();
   const form = event.currentTarget;
   if (!form.checkValidity()) {
-    showError(form, 'Escribí tu contraseña actual y una nueva de 10 caracteres o más.');
+    showError(form, state.user.noPassword ? 'Elegí una contraseña de 10 caracteres o más.'
+      : 'Escribí tu contraseña actual y una nueva de 10 caracteres o más.');
     return;
   }
   await busy(form, async () => {
-    await api('password_change', { body: { current: form.current.value, password: form.password.value } });
+    const result = await api('password_change', { body: { current: form.current.value, password: form.password.value } });
+    // El servidor le cambia el identificador a la sesión: una copia de la anterior deja de servir.
+    state.csrf = result.csrf;
+    state.user = result.user;
     form.reset();
     form.closest('details').open = false;
+    form.closest('details').querySelector('summary').focus();
+    renderPasswordForm();
     toast('Listo: cambiaste tu contraseña.');
   });
 }
@@ -825,6 +888,7 @@ async function loadProfile() {
   renderMyPhoto();
   $('#me-name').textContent = me.name;
   $('#me-meta').textContent = `${isPhone(me.email) ? 'Celular' : 'Correo'}: ${me.email} · ${memberSince(me.created)}`;
+  renderPasswordForm();
   $('#me-link').value = profileUrl(me.id);
   $('#name-form').elements.namedItem('name').value = me.name;
   renderContacts();
@@ -1003,6 +1067,7 @@ async function init() {
   $('#report-form').addEventListener('submit', sendReport);
   $('#report-cancel').addEventListener('click', () => $('#report-dlg').close());
   $('#claim').addEventListener('submit', claim);
+  $('#contact-form').addEventListener('submit', saveContact);
   $('#admin-tabs').addEventListener('click', (event) => {
     if (event.target.dataset.tab) selectAdminTab(event.target.dataset.tab);
   });
