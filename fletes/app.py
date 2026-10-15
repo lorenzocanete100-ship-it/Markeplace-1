@@ -1,4 +1,4 @@
-"""Fletá: fletes y envíos entre particulares, en AMBA y a todo el país.
+"""Fletá: mudanzas entre particulares, dentro de Buenos Aires, a todo el país y a países limítrofes.
 
 Run with Gunicorn: gunicorn 'app:create_app()'
 """
@@ -25,47 +25,73 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from cities import CITIES
+from cities import CITIES, COUNTRIES
 
 Image.MAX_IMAGE_PIXELS = 20000000
 
-# rank: a driver with a vehicle of rank N can take jobs that need rank <= N.
+# rank: a driver with a vehicle of rank N can take moves that need rank <= N.
 VEHICLES = {
-    'moto': {'label': 'Moto (sobres y cajas chicas)', 'rank': 0, 'base': 6000, 'km': 300, 'max_kg': 15},
-    'auto': {'label': 'Auto', 'rank': 1, 'base': 12000, 'km': 550, 'max_kg': 150},
-    'utilitario': {'label': 'Utilitario (tipo Kangoo)', 'rank': 2, 'base': 22000, 'km': 950, 'max_kg': 600},
-    'camioneta': {'label': 'Camioneta / furgón', 'rank': 3, 'base': 38000, 'km': 1400, 'max_kg': 1500},
-    'camion': {'label': 'Camión de mudanza', 'rank': 4, 'base': 75000, 'km': 2300, 'max_kg': 4000},
+    'utilitario': {'label': 'Utilitario (tipo Kangoo)', 'rank': 0, 'base': 25000, 'km': 1000, 'm3': 4},
+    'camioneta': {'label': 'Camioneta / furgón', 'rank': 1, 'base': 45000, 'km': 1500, 'm3': 10},
+    'camion': {'label': 'Camión de mudanza', 'rank': 2, 'base': 90000, 'km': 2400, 'm3': 20},
+    'camion_grande': {'label': 'Camión grande', 'rank': 3, 'base': 150000, 'km': 3200, 'm3': 40},
 }
-SERVICES = {'flete': 'Flete exclusivo', 'bultos': 'Envío de bultos'}
+# Typical load per home size: the vehicle and crew it needs, and the price of the optional services.
+SIZES = {
+    'items': {'label': 'Pocas cosas', 'hint': 'Algunos muebles o electrodomésticos', 'vehicle': 'utilitario', 'helpers': 1, 'm3': 4, 'packing': 15000, 'assembly': 10000},
+    'mono': {'label': 'Monoambiente', 'hint': 'Cama, placard, heladera y cajas', 'vehicle': 'camioneta', 'helpers': 2, 'm3': 10, 'packing': 40000, 'assembly': 25000},
+    'two': {'label': '2 ambientes', 'hint': 'Living, un dormitorio y cocina', 'vehicle': 'camion', 'helpers': 2, 'm3': 18, 'packing': 70000, 'assembly': 40000},
+    'three': {'label': '3 ambientes', 'hint': 'Dos dormitorios completos', 'vehicle': 'camion_grande', 'helpers': 3, 'm3': 28, 'packing': 100000, 'assembly': 55000},
+    'house': {'label': '4 ambientes o casa', 'hint': 'Casa familiar completa', 'vehicle': 'camion_grande', 'helpers': 4, 'm3': 38, 'packing': 140000, 'assembly': 75000},
+}
+SCOPES = {'amba': 'Dentro de Buenos Aires', 'nacional': 'Nacional', 'internacional': 'Internacional'}
 SLOTS = {'am': 'Mañana (8 a 13 h)', 'pm': 'Tarde (13 a 19 h)'}
-HELPER_PRICE = 18000
-MOTO_MAX_KM = 80
-BULTOS_MAX_KG = 300
+HELPER_PRICE = 20000
+STAIR_PRICE = 5000          # per floor without elevator, per 10 m³ of load
+SHARED_DISCOUNT = 0.4       # shared truck on long trips
+SHARED_MIN_KM = 150
+MAX_HELPERS = 6
+MAX_FLOOR = 40
 ROAD_FACTOR = 1.3
 DRIVER_DOCS = {
     'dni_front': 'DNI (frente)', 'dni_back': 'DNI (dorso)', 'selfie': 'Selfie sosteniendo el DNI',
     'license': 'Licencia de conducir', 'vehicle_card': 'Cédula del vehículo',
     'insurance': 'Póliza de seguro vigente', 'background': 'Certificado de antecedentes penales',
 }
-PDF_DOCS = {'insurance', 'background'}
+INTL_DOCS = {
+    'intl_permit': 'Permiso de transporte internacional de cargas',
+    'intl_insurance': 'Seguro internacional (Carta Verde / RCTR-VI)',
+}
+ALL_DOCS = {**DRIVER_DOCS, **INTL_DOCS}
+PDF_DOCS = {'insurance', 'background', 'intl_permit', 'intl_insurance'}
 STATUS = {
-    'pending_payment': 'Pendiente de pago', 'paid': 'Pagado · buscando chofer', 'assigned': 'Chofer asignado',
-    'in_transit': 'En viaje', 'delivered': 'Entregado', 'cancelled': 'Cancelado',
+    'pending_payment': 'Pendiente de pago', 'paid': 'Pagada · buscando chofer', 'assigned': 'Chofer asignado',
+    'in_transit': 'En viaje', 'delivered': 'Entregada', 'cancelled': 'Cancelada',
 }
 ACTIVE_TRIPS_MAX = 3
 CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 
+def _leg(a, b):
+    lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 2 * 6371 * math.asin(math.sqrt(h)) * ROAD_FACTOR
+
+
 def distance_km(a, b):
     """Great-circle distance times a road factor. Replace with a routing API for exact km."""
-    lat1, lon1, lat2, lon2 = map(math.radians, (a['lat'], a['lon'], b['lat'], b['lon']))
-    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
-    return max(3, round(2 * 6371 * math.asin(math.sqrt(h)) * ROAD_FACTOR))
+    return max(3, round(_leg((a['lat'], a['lon']), (b['lat'], b['lon']))))
 
 
-def min_vehicle_for(kg):
-    return next(k for k, v in VEHICLES.items() if v['max_kg'] >= kg and k != 'moto') if kg <= VEHICLES['camion']['max_kg'] else None
+def route(a, b):
+    """Road km between two cities and, abroad, the border crossing that gives the shortest trip."""
+    foreign = a['country'] if a['country'] != 'AR' else b['country']
+    if foreign == 'AR':
+        return (distance_km(a, b) if a is not b else 5), None
+    options = [(_leg((a['lat'], a['lon']), (lat, lon)) + _leg((lat, lon), (b['lat'], b['lon'])) + extra, name)
+               for name, lat, lon, extra in COUNTRIES[foreign]['crossings']]
+    km, crossing = min(options)
+    return round(km), crossing
 
 
 def valid_cuil(value):
@@ -78,13 +104,25 @@ def valid_cuil(value):
 
 
 def valid_plate(value):
-    return bool(re.fullmatch(r'[A-Z]{3}\d{3}|[A-Z]{2}\d{3}[A-Z]{2}|A?\d{3}[A-Z]{3}', value))
+    return bool(re.fullmatch(r'[A-Z]{3}\d{3}|[A-Z]{2}\d{3}[A-Z]{2}', value))
 
 
 def parse_date(value):
     try:
         return date.fromisoformat(str(value))
     except ValueError:
+        return None
+
+
+def half_up(x):
+    """Round .5 up, like JavaScript's Math.round (Python's round() goes to the even number)."""
+    return math.floor(x + 0.5)
+
+
+def as_int(value, default=0):
+    try:
+        return int(value if value not in (None, '') else default)
+    except (TypeError, ValueError):
         return None
 
 
@@ -96,7 +134,7 @@ def create_app(test_config=None):
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
         SESSION_COOKIE_SECURE=os.environ.get('APP_ENV') == 'production',
         PERMANENT_SESSION_LIFETIME=timedelta(days=7),
-        MAX_CONTENT_LENGTH=40 * 1024 * 1024, MAX_FORM_PARTS=40,
+        MAX_CONTENT_LENGTH=50 * 1024 * 1024, MAX_FORM_PARTS=40,
         ADMIN_EMAIL=os.environ.get('ADMIN_EMAIL', '').strip().lower(),
         PUBLIC_URL=os.environ.get('PUBLIC_URL', '').rstrip('/'),
         MP_ACCESS_TOKEN=os.environ.get('MP_ACCESS_TOKEN', ''),
@@ -116,7 +154,7 @@ def create_app(test_config=None):
     docs_dir.mkdir(parents=True, exist_ok=True)
 
     def connect():
-        con = sqlite3.connect(data / 'fletes.db', timeout=20)
+        con = sqlite3.connect(data / 'mudanzas.db', timeout=20)
         con.row_factory = sqlite3.Row
         con.execute('PRAGMA foreign_keys=ON')
         con.execute('PRAGMA busy_timeout=20000')
@@ -131,28 +169,30 @@ def create_app(test_config=None):
         CREATE TABLE IF NOT EXISTS drivers (
           user_id TEXT PRIMARY KEY REFERENCES users(id), status TEXT NOT NULL,
           cuil TEXT NOT NULL, vehicle TEXT NOT NULL, vehicle_model TEXT NOT NULL, plate TEXT NOT NULL,
-          base_city TEXT NOT NULL, long_distance INTEGER NOT NULL,
+          base_city TEXT NOT NULL, long_distance INTEGER NOT NULL, international INTEGER NOT NULL,
           license_expiry TEXT NOT NULL, insurance_expiry TEXT NOT NULL,
           docs TEXT NOT NULL, review_note TEXT NOT NULL DEFAULT '',
           submitted INTEGER NOT NULL, reviewed INTEGER,
           rating_sum INTEGER NOT NULL DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS shipments (
+        CREATE TABLE IF NOT EXISTS moves (
           id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, client TEXT NOT NULL REFERENCES users(id),
-          driver TEXT REFERENCES users(id), service TEXT NOT NULL, vehicle TEXT NOT NULL,
-          origin TEXT NOT NULL, origin_address TEXT NOT NULL, destination TEXT NOT NULL, dest_address TEXT NOT NULL,
-          pickup_date TEXT NOT NULL, slot TEXT NOT NULL, kg INTEGER NOT NULL, helpers INTEGER NOT NULL,
-          description TEXT NOT NULL, receiver_name TEXT NOT NULL, receiver_phone TEXT NOT NULL,
-          declared_value INTEGER NOT NULL, insurance INTEGER NOT NULL,
+          driver TEXT REFERENCES users(id), size TEXT NOT NULL, vehicle TEXT NOT NULL, scope TEXT NOT NULL, crossing TEXT,
+          origin TEXT NOT NULL, origin_address TEXT NOT NULL, origin_floor INTEGER NOT NULL, origin_elevator INTEGER NOT NULL,
+          destination TEXT NOT NULL, dest_address TEXT NOT NULL, dest_floor INTEGER NOT NULL, dest_elevator INTEGER NOT NULL,
+          helpers INTEGER NOT NULL, packing INTEGER NOT NULL, assembly INTEGER NOT NULL, shared INTEGER NOT NULL,
+          pickup_date TEXT NOT NULL, slot TEXT NOT NULL, inventory TEXT NOT NULL,
+          receiver_name TEXT NOT NULL, receiver_phone TEXT NOT NULL,
+          declared_value INTEGER NOT NULL, insurance INTEGER NOT NULL, customs_fee INTEGER NOT NULL,
           distance_km INTEGER NOT NULL, price INTEGER NOT NULL, payout INTEGER NOT NULL,
           pin TEXT NOT NULL, status TEXT NOT NULL, payment_id TEXT, payment_method TEXT,
           refund_status TEXT NOT NULL DEFAULT '', rating INTEGER, review TEXT,
           created INTEGER NOT NULL, updated INTEGER NOT NULL);
-        CREATE INDEX IF NOT EXISTS idx_ship_client ON shipments(client, created);
-        CREATE INDEX IF NOT EXISTS idx_ship_driver ON shipments(driver, created);
-        CREATE INDEX IF NOT EXISTS idx_ship_status ON shipments(status, pickup_date);
+        CREATE INDEX IF NOT EXISTS idx_moves_client ON moves(client, created);
+        CREATE INDEX IF NOT EXISTS idx_moves_driver ON moves(driver, created);
+        CREATE INDEX IF NOT EXISTS idx_moves_status ON moves(status, pickup_date);
         CREATE TABLE IF NOT EXISTS events (
-          shipment TEXT NOT NULL REFERENCES shipments(id), status TEXT NOT NULL, at INTEGER NOT NULL);
-        CREATE INDEX IF NOT EXISTS idx_events ON events(shipment, at);
+          move TEXT NOT NULL REFERENCES moves(id), status TEXT NOT NULL, at INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_events ON events(move, at);
         CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, hits INTEGER NOT NULL, expires INTEGER NOT NULL);
         ''')
 
@@ -185,57 +225,66 @@ def create_app(test_config=None):
             row = conn.execute('SELECT hits FROM limits WHERE key=?', (key,)).fetchone()
         return row['hits'] <= maximum
 
-    def set_status(con, sid, status, extra='', params=()):
+    def set_status(con, mid, status, extra='', params=()):
         now = int(time.time())
-        con.execute(f'UPDATE shipments SET status=?, updated=?{extra} WHERE id=?', (status, now, *params, sid))
-        con.execute('INSERT INTO events VALUES (?,?,?)', (sid, status, now))
+        con.execute(f'UPDATE moves SET status=?, updated=?{extra} WHERE id=?', (status, now, *params, mid))
+        con.execute('INSERT INTO events VALUES (?,?,?)', (mid, status, now))
 
     # ---------- pricing ----------
-    def quote(payload):
+    def quote(p):
         """Return (quote dict, None) or (None, error message)."""
-        origin, dest = CITIES.get(str(payload.get('origin'))), CITIES.get(str(payload.get('destination')))
-        service = payload.get('service')
+        origin, dest = CITIES.get(str(p.get('origin'))), CITIES.get(str(p.get('destination')))
+        size = SIZES.get(p.get('size'))
         if not origin or not dest:
             return None, 'Elegí origen y destino de la lista.'
-        if service not in SERVICES:
-            return None, 'Elegí el tipo de servicio.'
-        try:
-            kg = int(payload.get('kg') or 0)
-            helpers = int(payload.get('helpers') or 0)
-            declared = int(payload.get('declared_value') or 0)
-        except (TypeError, ValueError):
-            return None, 'Revisá peso, ayudantes y valor declarado.'
-        insurance_on = bool(payload.get('insurance'))
-        if not 1 <= kg <= 4000 or not 0 <= helpers <= 3 or not 0 <= declared <= 50000000:
-            return None, 'Revisá peso (1 a 4.000 kg), ayudantes (0 a 3) y valor declarado.'
-        km = distance_km(origin, dest) if origin is not dest else 5
-        if service == 'bultos':
-            if kg > BULTOS_MAX_KG:
-                return None, f'Para más de {BULTOS_MAX_KG} kg pedí un flete exclusivo.'
-            vehicle, helpers = min_vehicle_for(kg), 0
-            transport = 7000 + kg * (120 + 0.5 * km)
-        else:
-            vehicle = payload.get('vehicle')
-            if vehicle not in VEHICLES:
-                return None, 'Elegí el vehículo.'
-            v = VEHICLES[vehicle]
-            if kg > v['max_kg']:
-                return None, f'{v["label"]}: hasta {v["max_kg"]} kg. Elegí un vehículo más grande.'
-            if vehicle == 'moto' and km > MOTO_MAX_KM:
-                return None, f'Las motos hacen viajes de hasta {MOTO_MAX_KM} km.'
-            # Long trips are cheaper per km: the first 100 km at full rate, the rest at 65 %.
-            transport = v['base'] + v['km'] * (min(km, 100) + max(km - 100, 0) * 0.65)
+        if origin['country'] != 'AR' and dest['country'] != 'AR':
+            return None, 'La mudanza tiene que salir de Argentina o llegar a Argentina.'
+        if not size:
+            return None, 'Elegí el tamaño de la mudanza.'
+        helpers = as_int(p.get('helpers'), size['helpers'])
+        floors = [as_int(p.get('origin_floor')), as_int(p.get('dest_floor'))]
+        declared = as_int(p.get('declared_value'))
+        if helpers is None or not 0 <= helpers <= MAX_HELPERS:
+            return None, f'Elegí de 0 a {MAX_HELPERS} ayudantes.'
+        if None in floors or not all(0 <= f <= MAX_FLOOR for f in floors):
+            return None, 'Revisá los pisos de origen y destino (0 = planta baja).'
+        if declared is None or not 0 <= declared <= 100000000:
+            return None, 'Revisá el valor declarado.'
+        km, crossing = route(origin, dest)
+        scope = ('internacional' if crossing else
+                 'amba' if origin['region'] == dest['region'] == 'AMBA' else 'nacional')
+        shared = bool(p.get('shared')) and scope != 'amba' and km >= SHARED_MIN_KM
+        v = VEHICLES[size['vehicle']]
         factor = app.config['PRICE_FACTOR']
-        transport = round(transport * factor / 100) * 100
-        helpers_cost = round(helpers * HELPER_PRICE * factor / 100) * 100
-        insurance = max(1500, round(declared * 0.015)) if insurance_on and declared else 0
-        price = transport + helpers_cost + insurance
-        payout = round((transport + helpers_cost) * (1 - app.config['PLATFORM_FEE_PCT'] / 100))
-        long_distance = not (origin['region'] == dest['region'] == 'AMBA') and km > 60
-        return {'origin': origin['id'], 'destination': dest['id'], 'service': service, 'vehicle': vehicle,
-                'kg': kg, 'helpers': helpers, 'declared_value': declared, 'insurance': insurance,
-                'distance_km': km, 'price': price, 'payout': payout, 'long_distance': long_distance,
-                'breakdown': [['Transporte', transport], ['Ayudantes', helpers_cost], ['Seguro de la carga', insurance]]}, None
+        r = lambda n: half_up(n * factor / 100) * 100  # noqa: E731
+        # Long trips are cheaper per km: the first 100 km at full rate, the rest at 65 %.
+        transport = v['base'] + v['km'] * (min(km, 100) + max(km - 100, 0) * 0.65)
+        if shared:
+            transport *= 1 - SHARED_DISCOUNT
+        elevators = [bool(p.get('origin_elevator')), bool(p.get('dest_elevator'))]
+        stair_floors = sum(f for f, lift in zip(floors, elevators) if not lift)
+        # Away from home the crew works at both ends, so helpers cost double.
+        lines = {
+            'Transporte' + (' compartido' if shared else ''): r(transport),
+            'Ayudantes': r(helpers * HELPER_PRICE * (1 if scope == 'amba' else 2)),
+            'Escaleras sin ascensor': r(stair_floors * STAIR_PRICE * max(1, size['m3'] / 10)),
+            'Embalaje': r(size['packing']) if p.get('packing') else 0,
+            'Desarme y armado de muebles': r(size['assembly']) if p.get('assembly') else 0,
+            'Gestión aduanera y cruce de frontera': r(COUNTRIES[(origin if origin['country'] != 'AR' else dest)['country']]['customs_fee']) if crossing else 0,
+            'Seguro de la carga': max(1500, half_up(declared * 0.015)) if p.get('insurance') and declared else 0,
+        }
+        insurance = lines['Seguro de la carga']
+        customs = lines['Gestión aduanera y cruce de frontera']
+        price = sum(lines.values())
+        payout = half_up((price - insurance - customs) * (1 - app.config['PLATFORM_FEE_PCT'] / 100))
+        return {'origin': origin['id'], 'destination': dest['id'], 'size': p['size'], 'vehicle': size['vehicle'], 'm3': size['m3'],
+                'scope': scope, 'scope_label': SCOPES[scope], 'crossing': crossing, 'distance_km': km,
+                'helpers': helpers, 'origin_floor': floors[0], 'dest_floor': floors[1],
+                'origin_elevator': elevators[0], 'dest_elevator': elevators[1],
+                'packing': bool(p.get('packing')), 'assembly': bool(p.get('assembly')), 'shared': shared,
+                'shared_available': scope != 'amba' and km >= SHARED_MIN_KM,
+                'declared_value': declared, 'insurance': insurance, 'customs_fee': customs,
+                'price': price, 'payout': payout, 'breakdown': [[k, v] for k, v in lines.items()]}, None
 
     # ---------- serialization ----------
     def driver_public(uid):
@@ -244,20 +293,23 @@ def create_app(test_config=None):
             return None
         return {'name': row['name'], 'phone': row['phone'], 'vehicle': VEHICLES[row['vehicle']]['label'],
                 'vehicle_model': row['vehicle_model'], 'plate': row['plate'], 'verified': row['status'] == 'approved',
+                'international': bool(row['international']),
                 'rating': round(row['rating_sum'] / row['rating_count'], 1) if row['rating_count'] else None,
                 'rating_count': row['rating_count']}
 
-    def shipment_json(row, viewer, admin=False):
+    def move_json(row, viewer, admin=False):
         s = dict(row)
         is_client = viewer and s['client'] == viewer['id']
         is_driver = viewer and s['driver'] == viewer['id']
-        out = {k: s[k] for k in ('id', 'code', 'service', 'vehicle', 'origin', 'destination', 'pickup_date', 'slot', 'kg',
-                                 'helpers', 'description', 'distance_km', 'status', 'created')}
+        out = {k: s[k] for k in ('id', 'code', 'size', 'vehicle', 'scope', 'crossing', 'origin', 'destination', 'pickup_date', 'slot',
+                                 'helpers', 'origin_floor', 'dest_floor', 'distance_km', 'status', 'created')}
+        for k in ('origin_elevator', 'dest_elevator', 'packing', 'assembly', 'shared'):
+            out[k] = bool(s[k])
         out.update(origin_label=CITIES[s['origin']]['label'], destination_label=CITIES[s['destination']]['label'],
                    status_label=STATUS[s['status']], slot_label=SLOTS[s['slot']], vehicle_label=VEHICLES[s['vehicle']]['label'],
-                   service_label=SERVICES[s['service']])
+                   size_label=SIZES[s['size']]['label'], scope_label=SCOPES[s['scope']], m3=SIZES[s['size']]['m3'])
         if is_client or admin:
-            out.update(price=s['price'], insurance=s['insurance'], declared_value=s['declared_value'],
+            out.update(price=s['price'], insurance=s['insurance'], customs_fee=s['customs_fee'], declared_value=s['declared_value'],
                        payment_method=s['payment_method'], refund_status=s['refund_status'],
                        rating=s['rating'], review=s['review'], mine=bool(is_client))
             if s['status'] not in ('delivered', 'cancelled'):
@@ -265,9 +317,9 @@ def create_app(test_config=None):
         if is_driver or admin:
             out['payout'] = s['payout']
         if is_client or is_driver or admin:
-            out.update(origin_address=s['origin_address'], dest_address=s['dest_address'],
+            out.update(origin_address=s['origin_address'], dest_address=s['dest_address'], inventory=s['inventory'],
                        receiver_name=s['receiver_name'], receiver_phone=s['receiver_phone'])
-            out['events'] = [dict(e) for e in db().execute('SELECT status, at FROM events WHERE shipment=? ORDER BY at', (s['id'],))]
+            out['events'] = [dict(e) for e in db().execute('SELECT status, at FROM events WHERE move=? ORDER BY at', (s['id'],))]
         if s['driver'] and (is_client or admin):
             out['driver'] = driver_public(s['driver'])
         if is_driver or admin:
@@ -310,8 +362,8 @@ def create_app(test_config=None):
         return jsonify(ok=True)
 
     @app.get('/')
-    @app.get('/pago/<sid>')
-    def index(sid=None):
+    @app.get('/pago/<mid>')
+    def index(mid=None):
         return send_from_directory(app.static_folder, 'index.html')
 
     @app.get('/favicon.svg')
@@ -375,12 +427,15 @@ def create_app(test_config=None):
     # ---------- catalog & quotes ----------
     @app.get('/api/catalog')
     def catalog():
+        order = {'AMBA': 0, 'Interior': 1, 'Internacional': 2}
         return jsonify(
-            cities=sorted(({k: c[k] for k in ('id', 'label', 'area', 'region')} for c in CITIES.values()),
-                          key=lambda c: (c['region'] != 'AMBA', c['area'], c['label'])),
-            vehicles=[{'id': k, 'label': v['label'], 'max_kg': v['max_kg']} for k, v in VEHICLES.items()],
-            services=SERVICES, slots=SLOTS, docs=DRIVER_DOCS, helper_price=HELPER_PRICE,
-            bultos_max_kg=BULTOS_MAX_KG, moto_max_km=MOTO_MAX_KM)
+            cities=sorted(({k: c[k] for k in ('id', 'label', 'area', 'region', 'country')} for c in CITIES.values()),
+                          key=lambda c: (order[c['region']], c['area'], c['label'])),
+            vehicles=[{'id': k, 'label': v['label'], 'm3': v['m3']} for k, v in VEHICLES.items()],
+            sizes=[{'id': k, 'label': s['label'], 'hint': s['hint'], 'm3': s['m3'], 'helpers': s['helpers']} for k, s in SIZES.items()],
+            countries={k: c['name'] for k, c in COUNTRIES.items()},
+            slots=SLOTS, docs=DRIVER_DOCS, intl_docs=INTL_DOCS, helper_price=HELPER_PRICE,
+            max_helpers=MAX_HELPERS, shared_discount=SHARED_DISCOUNT, shared_min_km=SHARED_MIN_KM)
 
     @app.post('/api/quote')
     def get_quote():
@@ -389,106 +444,114 @@ def create_app(test_config=None):
         q, error = quote(request.get_json(silent=True) or {})
         return fail(error) if error else jsonify(q)
 
-    # ---------- shipments (client) ----------
-    @app.post('/api/shipments')
-    def create_shipment():
+    # ---------- moves (client) ----------
+    @app.post('/api/moves')
+    def create_move():
         u = user()
         if not u:
-            return fail('Iniciá sesión para pedir el flete.', 401)
-        if not limit('ship:' + u['id'], 20, 3600):
+            return fail('Iniciá sesión para pedir la mudanza.', 401)
+        if not limit('move:' + u['id'], 20, 3600):
             return fail('Llegaste al límite de pedidos por hora.', 429)
         p = request.get_json(silent=True) or {}
         q, error = quote(p)
         if error:
             return fail(error)
-        text = {k: str(p.get(k, '')).strip() for k in ('origin_address', 'dest_address', 'description', 'receiver_name')}
+        text = {k: str(p.get(k, '')).strip() for k in ('origin_address', 'dest_address', 'inventory', 'receiver_name')}
         receiver_phone = re.sub(r'\D', '', str(p.get('receiver_phone', '')))
         pickup = parse_date(p.get('pickup_date'))
-        if not pickup or not date.today() <= pickup <= date.today() + timedelta(days=90):
-            return fail('Elegí una fecha de retiro entre hoy y los próximos 90 días.')
+        if not pickup or not date.today() <= pickup <= date.today() + timedelta(days=180):
+            return fail('Elegí una fecha de mudanza entre hoy y los próximos 6 meses.')
         if p.get('slot') not in SLOTS:
             return fail('Elegí la franja horaria.')
         if not (5 <= len(text['origin_address']) <= 150 and 5 <= len(text['dest_address']) <= 150):
-            return fail('Completá las direcciones de retiro y entrega (calle y número).')
-        if not 5 <= len(text['description']) <= 1000:
-            return fail('Contanos qué hay que llevar (mínimo 5 caracteres).')
-        if not 2 <= len(text['receiver_name']) <= 80 or not re.fullmatch(r'\d{10,15}', receiver_phone):
-            return fail('Completá nombre y celular de quien recibe.')
-        sid = uuid.uuid4().hex
+            return fail('Completá las direcciones de origen y destino (calle y número).')
+        min_inventory = 30 if q['scope'] == 'internacional' else 5
+        if not min_inventory <= len(text['inventory']) <= 4000:
+            return fail('Para cruzar la frontera necesitamos el inventario detallado (mínimo 30 caracteres).'
+                        if q['scope'] == 'internacional' else 'Contanos qué hay que llevar (mínimo 5 caracteres).')
+        if not 2 <= len(text['receiver_name']) <= 80 or not re.fullmatch(r'\d{8,15}', receiver_phone):
+            return fail('Completá nombre y celular de quien recibe en destino.')
+        mid = uuid.uuid4().hex
         now = int(time.time())
         with db() as con:
             for _ in range(5):
-                code = 'FL-' + ''.join(secrets.choice(CODE_ALPHABET) for _ in range(6))
-                if not con.execute('SELECT 1 FROM shipments WHERE code=?', (code,)).fetchone():
+                code = 'MD-' + ''.join(secrets.choice(CODE_ALPHABET) for _ in range(6))
+                if not con.execute('SELECT 1 FROM moves WHERE code=?', (code,)).fetchone():
                     break
-            con.execute('''INSERT INTO shipments (id,code,client,driver,service,vehicle,origin,origin_address,destination,dest_address,
-                pickup_date,slot,kg,helpers,description,receiver_name,receiver_phone,declared_value,insurance,distance_km,price,payout,
-                pin,status,created,updated) VALUES (?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                        (sid, code, u['id'], q['service'], q['vehicle'], q['origin'], text['origin_address'], q['destination'],
-                         text['dest_address'], pickup.isoformat(), p['slot'], q['kg'], q['helpers'], text['description'],
-                         text['receiver_name'], receiver_phone, q['declared_value'], q['insurance'], q['distance_km'],
-                         q['price'], q['payout'], f'{secrets.randbelow(10000):04d}', 'pending_payment', now, now))
-            con.execute('INSERT INTO events VALUES (?,?,?)', (sid, 'pending_payment', now))
-        return jsonify(id=sid, code=code), 201
+            row = {
+                'id': mid, 'code': code, 'client': u['id'], 'driver': None, 'size': q['size'], 'vehicle': q['vehicle'],
+                'scope': q['scope'], 'crossing': q['crossing'], 'origin': q['origin'], 'origin_address': text['origin_address'],
+                'origin_floor': q['origin_floor'], 'origin_elevator': int(q['origin_elevator']), 'destination': q['destination'],
+                'dest_address': text['dest_address'], 'dest_floor': q['dest_floor'], 'dest_elevator': int(q['dest_elevator']),
+                'helpers': q['helpers'], 'packing': int(q['packing']), 'assembly': int(q['assembly']), 'shared': int(q['shared']),
+                'pickup_date': pickup.isoformat(), 'slot': p['slot'], 'inventory': text['inventory'],
+                'receiver_name': text['receiver_name'], 'receiver_phone': receiver_phone,
+                'declared_value': q['declared_value'], 'insurance': q['insurance'], 'customs_fee': q['customs_fee'],
+                'distance_km': q['distance_km'], 'price': q['price'], 'payout': q['payout'],
+                'pin': f'{secrets.randbelow(10000):04d}', 'status': 'pending_payment', 'created': now, 'updated': now,
+            }
+            con.execute(f'INSERT INTO moves ({",".join(row)}) VALUES ({",".join("?" * len(row))})', tuple(row.values()))
+            con.execute('INSERT INTO events VALUES (?,?,?)', (mid, 'pending_payment', now))
+        return jsonify(id=mid, code=code), 201
 
-    @app.get('/api/shipments')
-    def my_shipments():
+    @app.get('/api/moves')
+    def my_moves():
         u = user()
         if not u:
             return fail('Iniciá sesión.', 401)
-        rows = db().execute('SELECT * FROM shipments WHERE client=? ORDER BY created DESC LIMIT 200', (u['id'],)).fetchall()
-        return jsonify(items=[shipment_json(r, u) for r in rows])
+        rows = db().execute('SELECT * FROM moves WHERE client=? ORDER BY created DESC LIMIT 200', (u['id'],)).fetchall()
+        return jsonify(items=[move_json(r, u) for r in rows])
 
-    def load_shipment(sid):
-        return db().execute('SELECT * FROM shipments WHERE id=?', (sid,)).fetchone()
+    def load_move(mid):
+        return db().execute('SELECT * FROM moves WHERE id=?', (mid,)).fetchone()
 
-    @app.get('/api/shipments/<sid>')
-    def shipment_detail(sid):
+    @app.get('/api/moves/<mid>')
+    def move_detail(mid):
         u = user()
-        row = load_shipment(sid)
+        row = load_move(mid)
         if not u or not row or u['id'] not in (row['client'], row['driver']) and not is_admin(u):
-            return fail('Envío no encontrado.', 404)
-        return jsonify(shipment_json(row, u, is_admin(u)))
+            return fail('Mudanza no encontrada.', 404)
+        return jsonify(move_json(row, u, is_admin(u)))
 
     @app.get('/api/track/<code>')
     def track(code):
         if not limit('track:' + (request.remote_addr or '?'), 60, 600):
             return fail('Demasiadas consultas. Esperá unos minutos.', 429)
-        row = db().execute('SELECT * FROM shipments WHERE code=?', (code.strip().upper(),)).fetchone()
+        row = db().execute('SELECT * FROM moves WHERE code=?', (code.strip().upper(),)).fetchone()
         if not row:
-            return fail('No encontramos un envío con ese código.', 404)
-        events = db().execute('SELECT status, at FROM events WHERE shipment=? ORDER BY at', (row['id'],)).fetchall()
-        return jsonify(code=row['code'], status=row['status'], status_label=STATUS[row['status']],
+            return fail('No encontramos una mudanza con ese código.', 404)
+        events = db().execute('SELECT status, at FROM events WHERE move=? ORDER BY at', (row['id'],)).fetchall()
+        return jsonify(code=row['code'], status=row['status'], status_label=STATUS[row['status']], scope_label=SCOPES[row['scope']],
                        origin_label=CITIES[row['origin']]['label'], destination_label=CITIES[row['destination']]['label'],
-                       pickup_date=row['pickup_date'], events=[dict(e) for e in events])
+                       crossing=row['crossing'], pickup_date=row['pickup_date'], events=[dict(e) for e in events])
 
-    @app.post('/api/shipments/<sid>/cancel')
-    def cancel(sid):
+    @app.post('/api/moves/<mid>/cancel')
+    def cancel(mid):
         u = user()
-        row = load_shipment(sid)
+        row = load_move(mid)
         if not u or not row or row['client'] != u['id']:
-            return fail('Envío no encontrado.', 404)
+            return fail('Mudanza no encontrada.', 404)
         if row['status'] not in ('pending_payment', 'paid', 'assigned'):
-            return fail('Este envío ya no se puede cancelar.')
+            return fail('Esta mudanza ya no se puede cancelar.')
         refund = 'pending' if row['status'] != 'pending_payment' else ''
         with db() as con:
-            set_status(con, sid, 'cancelled', ', refund_status=?', (refund,))
+            set_status(con, mid, 'cancelled', ', refund_status=?', (refund,))
         return jsonify(ok=True, refund=bool(refund))
 
-    @app.post('/api/shipments/<sid>/rate')
-    def rate(sid):
+    @app.post('/api/moves/<mid>/rate')
+    def rate(mid):
         u = user()
-        row = load_shipment(sid)
+        row = load_move(mid)
         if not u or not row or row['client'] != u['id']:
-            return fail('Envío no encontrado.', 404)
+            return fail('Mudanza no encontrada.', 404)
         if row['status'] != 'delivered' or row['rating']:
-            return fail('Podés calificar una vez, cuando el envío se entregó.')
+            return fail('Podés calificar una vez, cuando la mudanza terminó.')
         p = request.get_json(silent=True) or {}
         stars, review = p.get('stars'), str(p.get('review', '')).strip()[:500]
         if stars not in (1, 2, 3, 4, 5):
             return fail('Elegí de 1 a 5 estrellas.')
         with db() as con:
-            con.execute('UPDATE shipments SET rating=?, review=? WHERE id=?', (stars, review, sid))
+            con.execute('UPDATE moves SET rating=?, review=? WHERE id=?', (stars, review, mid))
             con.execute('UPDATE drivers SET rating_sum=rating_sum+?, rating_count=rating_count+1 WHERE user_id=?', (stars, row['driver']))
         return jsonify(ok=True)
 
@@ -505,32 +568,32 @@ def create_app(test_config=None):
     app.mp_request = mp_request  # tests replace this
 
     def apply_payment(payment):
-        """Mark the shipment paid if Mercado Pago says this payment is approved for the full amount."""
-        sid = str(payment.get('external_reference', ''))
-        row = load_shipment(sid)
+        """Mark the move paid if Mercado Pago says this payment is approved for the full amount."""
+        mid = str(payment.get('external_reference', ''))
+        row = load_move(mid)
         if not row or payment.get('status') != 'approved' or payment.get('currency_id') != 'ARS':
             return row
         if float(payment.get('transaction_amount') or 0) + 0.01 < row['price']:
-            app.logger.warning('Payment %s amount below price for %s', payment.get('id'), sid)
+            app.logger.warning('Payment %s amount below price for %s', payment.get('id'), mid)
             return row
         method = 'card' if payment.get('payment_type_id') in ('credit_card', 'debit_card', 'prepaid_card') else 'mercadopago'
         with db() as con:
             if row['status'] == 'pending_payment':
-                set_status(con, sid, 'paid', ', payment_id=?, payment_method=?', (str(payment.get('id')), method))
+                set_status(con, mid, 'paid', ', payment_id=?, payment_method=?', (str(payment.get('id')), method))
             elif row['status'] == 'cancelled' and not row['payment_id']:
                 # Paid after cancelling: keep a record so the admin refunds it.
-                con.execute("UPDATE shipments SET payment_id=?, payment_method=?, refund_status='pending' WHERE id=?",
-                            (str(payment.get('id')), method, sid))
-        return load_shipment(sid)
+                con.execute("UPDATE moves SET payment_id=?, payment_method=?, refund_status='pending' WHERE id=?",
+                            (str(payment.get('id')), method, mid))
+        return load_move(mid)
 
-    @app.post('/api/shipments/<sid>/pay')
-    def pay(sid):
+    @app.post('/api/moves/<mid>/pay')
+    def pay(mid):
         u = user()
-        row = load_shipment(sid)
+        row = load_move(mid)
         if not u or not row or row['client'] != u['id']:
-            return fail('Envío no encontrado.', 404)
+            return fail('Mudanza no encontrada.', 404)
         if row['status'] != 'pending_payment':
-            return fail('Este envío ya fue pagado o cancelado.')
+            return fail('Esta mudanza ya fue pagada o cancelada.')
         method = (request.get_json(silent=True) or {}).get('method')
         if method not in ('mercadopago', 'card'):
             return fail('Elegí cómo pagar.')
@@ -540,11 +603,11 @@ def create_app(test_config=None):
             return fail('Los pagos no están configurados. Avisale al administrador.', 503)
         base = app.config['PUBLIC_URL']
         preference = {
-            'items': [{'id': row['code'], 'title': f'{SERVICES[row["service"]]} {row["code"]}', 'quantity': 1,
+            'items': [{'id': row['code'], 'title': f'Mudanza {SIZES[row["size"]]["label"]} {row["code"]}', 'quantity': 1,
                        'currency_id': 'ARS', 'unit_price': row['price']}],
             'payer': {'name': u['name'], 'email': u['email']},
-            'external_reference': sid,
-            'back_urls': {k: f'{base}/pago/{sid}' for k in ('success', 'pending', 'failure')},
+            'external_reference': mid,
+            'back_urls': {k: f'{base}/pago/{mid}' for k in ('success', 'pending', 'failure')},
             'auto_return': 'approved',
             'notification_url': f'{base}/api/payments/webhook',
             'statement_descriptor': 'FLETA',
@@ -559,34 +622,34 @@ def create_app(test_config=None):
             return fail('Mercado Pago no respondió. Probá de nuevo en unos minutos.', 502)
         return jsonify(url=result['init_point'])
 
-    @app.post('/api/shipments/<sid>/confirm-payment')
-    def confirm_payment(sid):
+    @app.post('/api/moves/<mid>/confirm-payment')
+    def confirm_payment(mid):
         """Called when the buyer returns from Mercado Pago; the webhook does the same in the background."""
         u = user()
-        row = load_shipment(sid)
+        row = load_move(mid)
         if not u or not row or row['client'] != u['id']:
-            return fail('Envío no encontrado.', 404)
+            return fail('Mudanza no encontrada.', 404)
         payment_id = str((request.get_json(silent=True) or {}).get('payment_id', ''))
         if row['status'] == 'pending_payment' and re.fullmatch(r'\d{1,20}', payment_id) and app.config['MP_ACCESS_TOKEN']:
             try:
                 payment = app.mp_request('GET', '/v1/payments/' + payment_id)
-                if str(payment.get('external_reference')) == sid:
+                if str(payment.get('external_reference')) == mid:
                     row = apply_payment(payment)
             except (urllib.error.URLError, TimeoutError, ValueError):
                 app.logger.exception('Mercado Pago lookup failed')
         return jsonify(status=row['status'], status_label=STATUS[row['status']])
 
-    @app.post('/api/shipments/<sid>/demo-pay')
-    def demo_pay(sid):
+    @app.post('/api/moves/<mid>/demo-pay')
+    def demo_pay(mid):
         u = user()
-        row = load_shipment(sid)
+        row = load_move(mid)
         if not app.config['DEMO_PAYMENTS'] or app.config['MP_ACCESS_TOKEN']:
             return fail('No disponible.', 404)
         if not u or not row or row['client'] != u['id'] or row['status'] != 'pending_payment':
-            return fail('Envío no encontrado.', 404)
+            return fail('Mudanza no encontrada.', 404)
         method = (request.get_json(silent=True) or {}).get('method')
         with db() as con:
-            set_status(con, sid, 'paid', ', payment_id=?, payment_method=?', ('demo-' + uuid.uuid4().hex[:8], 'card' if method == 'card' else 'mercadopago'))
+            set_status(con, mid, 'paid', ', payment_id=?, payment_method=?', ('demo-' + uuid.uuid4().hex[:8], 'card' if method == 'card' else 'mercadopago'))
         return jsonify(ok=True)
 
     @app.post('/api/payments/webhook')
@@ -616,7 +679,7 @@ def create_app(test_config=None):
     def save_doc(storage, kind):
         raw = storage.read(8000001)
         if len(raw) > 8000000:
-            raise ValueError(f'{DRIVER_DOCS[kind]}: el archivo supera 8 MB.')
+            raise ValueError(f'{ALL_DOCS[kind]}: el archivo supera 8 MB.')
         if raw.startswith(b'%PDF-') and kind in PDF_DOCS:
             content, ext = raw, '.pdf'
         else:
@@ -633,7 +696,7 @@ def create_app(test_config=None):
                     content, ext = out.getvalue(), '.jpg'
             except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning):
                 allowed = 'JPG, PNG, WebP o PDF' if kind in PDF_DOCS else 'JPG, PNG o WebP'
-                raise ValueError(f'{DRIVER_DOCS[kind]}: subí un archivo {allowed} válido.')
+                raise ValueError(f'{ALL_DOCS[kind]}: subí un archivo {allowed} válido.')
         key = uuid.uuid4().hex + ext
         (docs_dir / key).write_bytes(content)
         return key
@@ -642,7 +705,7 @@ def create_app(test_config=None):
         return db().execute('SELECT * FROM drivers WHERE user_id=?', (uid,)).fetchone()
 
     def driver_problems(d):
-        """Reasons an approved driver cannot take jobs today."""
+        """Reasons an approved driver cannot take moves today."""
         today = date.today().isoformat()
         problems = []
         if d['license_expiry'] < today:
@@ -650,6 +713,17 @@ def create_app(test_config=None):
         if d['insurance_expiry'] < today:
             problems.append('Tu seguro está vencido. Volvé a enviar la documentación.')
         return problems
+
+    def can_take(d, row):
+        """Whether this driver's vehicle and coverage fit the move."""
+        if VEHICLES[row['vehicle']]['rank'] > VEHICLES[d['vehicle']]['rank']:
+            return False
+        if row['scope'] == 'internacional':
+            return bool(d['international'])
+        if not d['long_distance']:
+            base = CITIES[d['base_city']]
+            return distance_km(base, CITIES[row['origin']]) <= 80 and row['distance_km'] <= 80
+        return True
 
     @app.get('/api/driver/me')
     def driver_me():
@@ -659,12 +733,12 @@ def create_app(test_config=None):
         d = driver_row(u['id'])
         if not d:
             return jsonify(driver=None)
-        out = {k: d[k] for k in ('status', 'vehicle', 'vehicle_model', 'plate', 'base_city', 'long_distance',
+        out = {k: d[k] for k in ('status', 'vehicle', 'vehicle_model', 'plate', 'base_city', 'long_distance', 'international',
                                  'license_expiry', 'insurance_expiry', 'review_note', 'rating_count')}
         out['rating'] = round(d['rating_sum'] / d['rating_count'], 1) if d['rating_count'] else None
         out['problems'] = driver_problems(d) if d['status'] == 'approved' else []
         out['base_city_label'] = CITIES[d['base_city']]['label']
-        earned = db().execute("SELECT COALESCE(SUM(payout),0) s, COUNT(*) n FROM shipments WHERE driver=? AND status='delivered'", (u['id'],)).fetchone()
+        earned = db().execute("SELECT COALESCE(SUM(payout),0) s, COUNT(*) n FROM moves WHERE driver=? AND status='delivered'", (u['id'],)).fetchone()
         out['earned'], out['trips'] = earned['s'], earned['n']
         return jsonify(driver=out)
 
@@ -683,32 +757,35 @@ def create_app(test_config=None):
         plate = re.sub(r'[\s-]', '', f.get('plate', '')).upper()
         vehicle, model, base_city = f.get('vehicle', ''), f.get('vehicle_model', '').strip(), f.get('base_city', '')
         lic, ins = parse_date(f.get('license_expiry')), parse_date(f.get('insurance_expiry'))
+        international = f.get('international') == '1'
+        long_distance = international or f.get('long_distance') == '1'
         if not valid_cuil(cuil):
             return fail('El CUIL no es válido. Revisá los 11 números.')
         if vehicle not in VEHICLES or not 2 <= len(model) <= 60:
             return fail('Indicá tipo, marca y modelo del vehículo.')
         if not valid_plate(plate):
             return fail('La patente no es válida (ej. AB123CD o ABC123).')
-        if base_city not in CITIES:
-            return fail('Elegí tu ciudad base.')
+        if base_city not in CITIES or CITIES[base_city]['country'] != 'AR':
+            return fail('Elegí tu ciudad base en Argentina.')
         if not lic or not ins or lic <= date.today() or ins <= date.today():
             return fail('La licencia y el seguro tienen que estar vigentes.')
-        missing = [label for kind, label in DRIVER_DOCS.items() if not request.files.get(kind)]
+        required = {**DRIVER_DOCS, **(INTL_DOCS if international else {})}
+        missing = [label for kind, label in required.items() if not request.files.get(kind)]
         if missing:
             return fail('Falta subir: ' + ', '.join(missing) + '.')
         keys = {}
         try:
-            for kind in DRIVER_DOCS:
+            for kind in required:
                 keys[kind] = save_doc(request.files[kind], kind)
             with db() as con:
-                con.execute('''INSERT INTO drivers (user_id,status,cuil,vehicle,vehicle_model,plate,base_city,long_distance,
-                    license_expiry,insurance_expiry,docs,review_note,submitted) VALUES (?,?,?,?,?,?,?,?,?,?,?,'',?)
+                con.execute('''INSERT INTO drivers (user_id,status,cuil,vehicle,vehicle_model,plate,base_city,long_distance,international,
+                    license_expiry,insurance_expiry,docs,review_note,submitted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'',?)
                     ON CONFLICT(user_id) DO UPDATE SET status=excluded.status, cuil=excluded.cuil, vehicle=excluded.vehicle,
                     vehicle_model=excluded.vehicle_model, plate=excluded.plate, base_city=excluded.base_city,
-                    long_distance=excluded.long_distance, license_expiry=excluded.license_expiry,
-                    insurance_expiry=excluded.insurance_expiry, docs=excluded.docs, review_note='',
-                    submitted=excluded.submitted, reviewed=NULL''',
-                            (u['id'], 'pending', cuil, vehicle, model, plate, base_city, 1 if f.get('long_distance') == '1' else 0,
+                    long_distance=excluded.long_distance, international=excluded.international,
+                    license_expiry=excluded.license_expiry, insurance_expiry=excluded.insurance_expiry,
+                    docs=excluded.docs, review_note='', submitted=excluded.submitted, reviewed=NULL''',
+                            (u['id'], 'pending', cuil, vehicle, model, plate, base_city, int(long_distance), int(international),
                              lic.isoformat(), ins.isoformat(), json.dumps(keys), int(time.time())))
         except ValueError as error:
             for key in keys.values():
@@ -733,19 +810,16 @@ def create_app(test_config=None):
         d = approved_driver(u)
         if not d:
             return fail('Tu cuenta de chofer todavía no está verificada.', 403)
-        rank = VEHICLES[d['vehicle']]['rank']
-        rows = db().execute("SELECT * FROM shipments WHERE status='paid' AND driver IS NULL AND pickup_date>=? ORDER BY pickup_date LIMIT 300",
+        rows = db().execute("SELECT * FROM moves WHERE status='paid' AND driver IS NULL AND pickup_date>=? ORDER BY pickup_date LIMIT 300",
                             (date.today().isoformat(),)).fetchall()
         base = CITIES[d['base_city']]
         items = []
         for r in rows:
-            if VEHICLES[r['vehicle']]['rank'] > rank or r['client'] == u['id']:
+            if r['client'] == u['id'] or not can_take(d, r):
                 continue
-            origin = CITIES[r['origin']]
-            if not d['long_distance'] and (distance_km(base, origin) > 80 or r['distance_km'] > 80):
-                continue
-            job = shipment_json(r, None)
+            job = move_json(r, None)
             job['payout'] = r['payout']
+            origin = CITIES[r['origin']]
             job['km_from_base'] = distance_km(base, origin) if base is not origin else 0
             items.append(job)
         items.sort(key=lambda j: (j['pickup_date'], j['km_from_base']))
@@ -756,15 +830,15 @@ def create_app(test_config=None):
         u = user()
         if not u:
             return fail('Iniciá sesión.', 401)
-        rows = db().execute('SELECT * FROM shipments WHERE driver=? ORDER BY pickup_date DESC LIMIT 200', (u['id'],)).fetchall()
-        return jsonify(items=[shipment_json(r, u) for r in rows])
+        rows = db().execute('SELECT * FROM moves WHERE driver=? ORDER BY pickup_date DESC LIMIT 200', (u['id'],)).fetchall()
+        return jsonify(items=[move_json(r, u) for r in rows])
 
-    @app.post('/api/shipments/<sid>/<action>')
-    def driver_action(sid, action):
+    @app.post('/api/moves/<mid>/<action>')
+    def driver_action(mid, action):
         u = user()
-        row = load_shipment(sid)
+        row = load_move(mid)
         if action not in ('accept', 'release', 'pickup', 'deliver') or not row:
-            return fail('Envío no encontrado.', 404)
+            return fail('Mudanza no encontrada.', 404)
         d = approved_driver(u)
         if not d:
             return fail('Tu cuenta de chofer todavía no está verificada.', 403)
@@ -772,43 +846,43 @@ def create_app(test_config=None):
             problems = driver_problems(d)
             if problems:
                 return fail(problems[0], 403)
-            if VEHICLES[row['vehicle']]['rank'] > VEHICLES[d['vehicle']]['rank'] or row['client'] == u['id']:
-                return fail('Este viaje no es compatible con tu vehículo.', 403)
-            active = db().execute("SELECT COUNT(*) n FROM shipments WHERE driver=? AND status IN ('assigned','in_transit')", (u['id'],)).fetchone()['n']
+            if row['client'] == u['id'] or not can_take(d, row):
+                return fail('Esta mudanza no es compatible con tu vehículo o tu cobertura.', 403)
+            active = db().execute("SELECT COUNT(*) n FROM moves WHERE driver=? AND status IN ('assigned','in_transit')", (u['id'],)).fetchone()['n']
             if active >= ACTIVE_TRIPS_MAX:
-                return fail(f'Podés tener hasta {ACTIVE_TRIPS_MAX} viajes activos.')
+                return fail(f'Podés tener hasta {ACTIVE_TRIPS_MAX} mudanzas activas.')
             with db() as con:
                 # The status/driver check inside the UPDATE makes accepting atomic: only one driver wins.
-                taken = con.execute("UPDATE shipments SET driver=?, status='assigned', updated=? WHERE id=? AND status='paid' AND driver IS NULL",
-                                    (u['id'], int(time.time()), sid)).rowcount
+                taken = con.execute("UPDATE moves SET driver=?, status='assigned', updated=? WHERE id=? AND status='paid' AND driver IS NULL",
+                                    (u['id'], int(time.time()), mid)).rowcount
                 if taken:
-                    con.execute('INSERT INTO events VALUES (?,?,?)', (sid, 'assigned', int(time.time())))
+                    con.execute('INSERT INTO events VALUES (?,?,?)', (mid, 'assigned', int(time.time())))
             if not taken:
-                return fail('Otro chofer ya tomó este viaje.', 409)
-            return jsonify(shipment_json(load_shipment(sid), u))
+                return fail('Otro chofer ya tomó esta mudanza.', 409)
+            return jsonify(move_json(load_move(mid), u))
         if row['driver'] != u['id']:
-            return fail('Este viaje no es tuyo.', 403)
+            return fail('Esta mudanza no es tuya.', 403)
         if action == 'release':
             if row['status'] != 'assigned':
-                return fail('Solo podés liberar un viaje antes de retirar la carga.')
+                return fail('Solo podés liberar una mudanza antes de cargar.')
             with db() as con:
-                set_status(con, sid, 'paid', ', driver=NULL')
+                set_status(con, mid, 'paid', ', driver=NULL')
         elif action == 'pickup':
             if row['status'] != 'assigned':
-                return fail('El viaje no está listo para retirar.')
+                return fail('La mudanza no está lista para cargar.')
             with db() as con:
-                set_status(con, sid, 'in_transit')
+                set_status(con, mid, 'in_transit')
         else:
             if row['status'] != 'in_transit':
-                return fail('Primero marcá que retiraste la carga.')
-            if not limit('pin:' + sid, 5, 3600):
+                return fail('Primero marcá que cargaste la mudanza.')
+            if not limit('pin:' + mid, 5, 3600):
                 return fail('Demasiados intentos con el código. Esperá una hora o contactá a soporte.', 429)
             pin = str((request.get_json(silent=True) or {}).get('pin', ''))
             if not secrets.compare_digest(pin, row['pin']):
                 return fail('El código de entrega no coincide. Pedíselo a quien recibe.')
             with db() as con:
-                set_status(con, sid, 'delivered')
-        return jsonify(shipment_json(load_shipment(sid), u))
+                set_status(con, mid, 'delivered')
+        return jsonify(move_json(load_move(mid), u))
 
     # ---------- admin ----------
     def admin_or_none():
@@ -825,7 +899,7 @@ def create_app(test_config=None):
         items = []
         for r in rows:
             item = dict(r)
-            item['documents'] = [{'label': DRIVER_DOCS[k], 'url': '/api/admin/docs/' + key, 'pdf': key.endswith('.pdf')}
+            item['documents'] = [{'label': ALL_DOCS[k], 'url': '/api/admin/docs/' + key, 'pdf': key.endswith('.pdf')}
                                  for k, key in json.loads(item.pop('docs')).items()]
             item['base_city_label'] = CITIES[item['base_city']]['label']
             item['vehicle_label'] = VEHICLES[item['vehicle']]['label']
@@ -858,22 +932,22 @@ def create_app(test_config=None):
                 return fail('Chofer no encontrado.', 404)
         return jsonify(ok=True)
 
-    @app.get('/api/admin/shipments')
-    def admin_shipments():
+    @app.get('/api/admin/moves')
+    def admin_moves():
         u = admin_or_none()
         if not u:
             return fail('No autorizado.', 403)
         only_refunds = request.args.get('refunds') == '1'
-        rows = db().execute("SELECT * FROM shipments WHERE refund_status='pending' ORDER BY updated DESC LIMIT 200" if only_refunds
-                            else 'SELECT * FROM shipments ORDER BY created DESC LIMIT 200').fetchall()
-        return jsonify(items=[shipment_json(r, u, admin=True) for r in rows])
+        rows = db().execute("SELECT * FROM moves WHERE refund_status='pending' ORDER BY updated DESC LIMIT 200" if only_refunds
+                            else 'SELECT * FROM moves ORDER BY created DESC LIMIT 200').fetchall()
+        return jsonify(items=[move_json(r, u, admin=True) for r in rows])
 
-    @app.post('/api/admin/shipments/<sid>/refunded')
-    def admin_refunded(sid):
+    @app.post('/api/admin/moves/<mid>/refunded')
+    def admin_refunded(mid):
         if not admin_or_none():
             return fail('No autorizado.', 403)
         with db() as con:
-            if not con.execute("UPDATE shipments SET refund_status='done' WHERE id=? AND refund_status='pending'", (sid,)).rowcount:
+            if not con.execute("UPDATE moves SET refund_status='done' WHERE id=? AND refund_status='pending'", (mid,)).rowcount:
                 return fail('No hay devolución pendiente.', 404)
         return jsonify(ok=True)
 

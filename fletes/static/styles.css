@@ -2,21 +2,21 @@
   --bg: #f6f7f5; --card: #ffffff; --text: #17201d; --muted: #5d6b66; --line: #dfe5e2;
   --brand: #0f766e; --brand-ink: #ffffff; --brand-soft: #e3f3f1; --accent: #f59e0b;
   --ok: #15803d; --ok-soft: #e7f6ec; --warn: #b45309; --warn-soft: #fdf3e2; --bad: #b91c1c; --bad-soft: #fde8e8;
-  --mp: #009ee3; --radius: 14px; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.05);
+  --mp: #009ee3; --intl: #4338ca; --intl-soft: #e8e7fb; --radius: 14px; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.05);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0f1413; --card: #182120; --text: #e8eeec; --muted: #9aa9a4; --line: #2a3533;
     --brand: #2dd4bf; --brand-ink: #062824; --brand-soft: #123532; --ok: #4ade80; --ok-soft: #12301f;
-    --warn: #fbbf24; --warn-soft: #33270f; --bad: #f87171; --bad-soft: #3a1717; --shadow: none;
+    --warn: #fbbf24; --warn-soft: #33270f; --bad: #f87171; --bad-soft: #3a1717; --shadow: none; --intl: #a5b4fc; --intl-soft: #1f2147;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
     --bg: #0f1413; --card: #182120; --text: #e8eeec; --muted: #9aa9a4; --line: #2a3533;
     --brand: #2dd4bf; --brand-ink: #062824; --brand-soft: #123532; --ok: #4ade80; --ok-soft: #12301f;
-    --warn: #fbbf24; --warn-soft: #33270f; --bad: #f87171; --bad-soft: #3a1717; --shadow: none;
+    --warn: #fbbf24; --warn-soft: #33270f; --bad: #f87171; --bad-soft: #3a1717; --shadow: none; --intl: #a5b4fc; --intl-soft: #1f2147;
     color-scheme: dark;
   }
 * { box-sizing: border-box; }
@@ -107,3 +107,32 @@ dialog.ask::backdrop { background: rgba(0,0,0,.45); }
 .doc img, .doc .pdf { width: 7.5rem; height: 5.5rem; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
 .doc .pdf { display: grid; place-items: center; font-weight: 800; color: var(--bad); }
 .doc small { font-size: .75rem; line-height: 1.2; color: var(--muted); }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: .5rem; }
+legend { font-weight: 600; font-size: .92rem; padding: 0; margin-bottom: .4rem; }
+.sizes { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.sizes legend { grid-column: 1 / -1; }
+.sizes label { position: relative; border: 1px solid var(--line); border-radius: 12px; padding: .7rem .75rem; cursor: pointer; background: var(--bg); gap: .1rem; }
+.sizes label:has(input:checked) { border-color: var(--brand); background: var(--brand-soft); }
+.sizes label:has(input:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
+.sizes input { position: absolute; opacity: 0; pointer-events: none; }
+.sizes small { font-weight: 400; color: var(--muted); line-height: 1.3; }
+.sizes .m3 { font-variant-numeric: tabular-nums; color: var(--brand); font-weight: 600; }
+.floor { grid-template-columns: 5.5rem 1fr; align-items: center; }
+.floor legend { grid-column: 1 / -1; }
+.extras .check { align-items: flex-start; }
+.extras .check small { display: block; color: var(--muted); font-weight: 400; }
+.scopes { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 1rem; }
+.scope { display: grid; gap: .2rem; text-align: left; font: inherit; color: var(--text); cursor: pointer; background: var(--card);
+  border: 1px solid var(--line); border-top: 4px solid var(--scope); border-radius: var(--radius); padding: .85rem 1rem; }
+.scope span { color: var(--muted); font-size: .92rem; }
+.scope small { color: var(--scope); font-weight: 700; }
+.scope:hover { border-color: var(--scope); }
+.scope-amba { --scope: var(--brand); }
+.scope-nacional { --scope: var(--warn); }
+.scope-internacional { --scope: var(--intl); }
+.badge.scope-amba { background: var(--brand-soft); color: var(--brand); }
+.badge.scope-nacional { background: var(--warn-soft); color: var(--warn); }
+.badge.scope-internacional { background: var(--intl-soft); color: var(--intl); }
+details summary { cursor: pointer; font-weight: 600; }
+.pre { white-space: pre-wrap; margin-top: .5rem; }
+.note ul { margin: .25rem 0 .75rem; padding-left: 1.2rem; }

@@ -17,7 +17,7 @@ def main():
     parser.add_argument('--email')
     parser.add_argument('--output', default='backup-fleta.db')
     args = parser.parse_args()
-    database = Path(os.environ.get('DATA_DIR', './data')) / 'fletes.db'
+    database = Path(os.environ.get('DATA_DIR', './data')) / 'mudanzas.db'
     if not database.exists():
         parser.error('Primero iniciá la aplicación para crear la base de datos.')
     with closing(sqlite3.connect(database)) as con:

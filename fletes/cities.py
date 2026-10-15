@@ -1,7 +1,8 @@
 """Localidades disponibles con coordenadas aproximadas (centro de la localidad).
 
-region: 'AMBA' (CABA + Gran Buenos Aires) o 'Interior'.
-Para sumar una localidad alcanza con agregar una fila: (nombre, provincia/zona, region, lat, lon).
+region: 'AMBA' (CABA + Gran Buenos Aires), 'Interior' o 'Internacional'.
+Para sumar una localidad alcanza con agregar una fila: (nombre, provincia/zona, region, lat, lon[, país]).
+Las mudanzas internacionales calculan la ruta pasando por el paso fronterizo más conveniente de COUNTRIES.
 """
 
 _ROWS = [
@@ -142,16 +143,67 @@ _ROWS = [
     ('El Calafate', 'Santa Cruz', 'Interior', -50.3379, -72.2648),
     ('Río Grande', 'Tierra del Fuego', 'Interior', -53.7877, -67.7095),
     ('Ushuaia', 'Tierra del Fuego', 'Interior', -54.8019, -68.3030),
+    # Países limítrofes
+    ('Montevideo', 'Uruguay', 'Internacional', -34.9011, -56.1645, 'UY'),
+    ('Punta del Este', 'Uruguay', 'Internacional', -34.9620, -54.9500, 'UY'),
+    ('Colonia del Sacramento', 'Uruguay', 'Internacional', -34.4626, -57.8398, 'UY'),
+    ('Paysandú', 'Uruguay', 'Internacional', -32.3214, -58.0756, 'UY'),
+    ('Salto', 'Uruguay', 'Internacional', -31.3833, -57.9667, 'UY'),
+    ('Santiago', 'Chile', 'Internacional', -33.4489, -70.6693, 'CL'),
+    ('Valparaíso', 'Chile', 'Internacional', -33.0472, -71.6127, 'CL'),
+    ('Viña del Mar', 'Chile', 'Internacional', -33.0245, -71.5518, 'CL'),
+    ('La Serena', 'Chile', 'Internacional', -29.9027, -71.2519, 'CL'),
+    ('Concepción', 'Chile', 'Internacional', -36.8270, -73.0503, 'CL'),
+    ('Temuco', 'Chile', 'Internacional', -38.7359, -72.5904, 'CL'),
+    ('Puerto Montt', 'Chile', 'Internacional', -41.4693, -72.9424, 'CL'),
+    ('Asunción', 'Paraguay', 'Internacional', -25.2637, -57.5759, 'PY'),
+    ('Ciudad del Este', 'Paraguay', 'Internacional', -25.5097, -54.6111, 'PY'),
+    ('Encarnación', 'Paraguay', 'Internacional', -27.3306, -55.8667, 'PY'),
+    ('Santa Cruz de la Sierra', 'Bolivia', 'Internacional', -17.7833, -63.1821, 'BO'),
+    ('La Paz', 'Bolivia', 'Internacional', -16.4897, -68.1193, 'BO'),
+    ('Cochabamba', 'Bolivia', 'Internacional', -17.4139, -66.1653, 'BO'),
+    ('Tarija', 'Bolivia', 'Internacional', -21.5355, -64.7296, 'BO'),
+    ('Porto Alegre', 'Brasil', 'Internacional', -30.0346, -51.2177, 'BR'),
+    ('Florianópolis', 'Brasil', 'Internacional', -27.5954, -48.5480, 'BR'),
+    ('Curitiba', 'Brasil', 'Internacional', -25.4284, -49.2733, 'BR'),
+    ('Foz do Iguaçu', 'Brasil', 'Internacional', -25.5163, -54.5854, 'BR'),
+    ('São Paulo', 'Brasil', 'Internacional', -23.5505, -46.6333, 'BR'),
+    ('Río de Janeiro', 'Brasil', 'Internacional', -22.9068, -43.1729, 'BR'),
 ]
+
+# customs_fee: gestión aduanera (despachante, inventario certificado, trámites de frontera) en ARS.
+# crossings: (nombre, lat, lon, km extra por camino de montaña o rodeo).
+COUNTRIES = {
+    'AR': {'name': 'Argentina'},
+    'UY': {'name': 'Uruguay', 'customs_fee': 180000, 'crossings': [
+        ('Puente Gualeguaychú – Fray Bentos', -33.10, -58.25, 0),
+        ('Puente Colón – Paysandú', -32.25, -58.09, 0),
+        ('Salto Grande (Concordia – Salto)', -31.27, -57.94, 0)]},
+    'CL': {'name': 'Chile', 'customs_fee': 250000, 'crossings': [
+        ('Paso Cristo Redentor (Mendoza – Los Andes)', -32.83, -70.07, 90),
+        ('Paso Cardenal Samoré (Neuquén – Osorno)', -40.70, -71.94, 60)]},
+    'PY': {'name': 'Paraguay', 'customs_fee': 200000, 'crossings': [
+        ('Puente Clorinda – Asunción', -25.32, -57.70, 0),
+        ('Puente Posadas – Encarnación', -27.36, -55.88, 0)]},
+    'BO': {'name': 'Bolivia', 'customs_fee': 220000, 'crossings': [
+        ('La Quiaca – Villazón', -22.10, -65.59, 40),
+        ('Salvador Mazza – Yacuiba', -22.05, -63.68, 0)]},
+    'BR': {'name': 'Brasil', 'customs_fee': 280000, 'crossings': [
+        ('Paso de los Libres – Uruguaiana', -29.74, -57.09, 0),
+        ('Santo Tomé – São Borja', -28.62, -56.03, 0),
+        ('Puerto Iguazú – Foz do Iguaçu', -25.59, -54.58, 0)]},
+}
 
 
 def _slug(text):
-    table = str.maketrans('áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+    table = str.maketrans('áéíóúüñãõçâêôÁÉÍÓÚÜÑ', 'aeiouunaocaeoAEIOUUN')
     return '-'.join(text.translate(table).lower().replace('.', '').split())
 
 
 CITIES = {}
-for _name, _area, _region, _lat, _lon in _ROWS:
+for _row in _ROWS:
+    _name, _area, _region, _lat, _lon = _row[:5]
     _id = _slug(_name + ' ' + _area)
     CITIES[_id] = {'id': _id, 'name': _name, 'area': _area, 'region': _region, 'lat': _lat, 'lon': _lon,
+                   'country': _row[5] if len(_row) > 5 else 'AR',
                    'label': f'{_name} ({_area})' if _area != _name else _name}
