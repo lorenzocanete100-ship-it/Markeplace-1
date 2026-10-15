@@ -2,21 +2,14 @@
 // Servidor de mentira para probar Asiento Vacío sin hosting. Atiende los mismos
 // pedidos que api.php y con las mismas reglas, pero guarda todo en este navegador.
 (() => {
-  const KEY = 'asiento-vacio-prueba-4';
+  const KEY = 'asiento-vacio-prueba-5';
   // Versiones anteriores de la prueba (algunas con fotos de DNI): se borran del navegador.
   try {
-    ['asiento-vacio-prueba', 'asiento-vacio-prueba-2', 'asiento-vacio-prueba-3'].forEach((old) => localStorage.removeItem(old));
+    ['asiento-vacio-prueba', 'asiento-vacio-prueba-2', 'asiento-vacio-prueba-3', 'asiento-vacio-prueba-4'].forEach((old) => localStorage.removeItem(old));
   } catch {
     // Sin almacenamiento no hay nada que borrar.
   }
   const ADMIN_CODE = 'PRUEBA2026';
-  // Cuentas con las que deja entrar el botón de Google simulado.
-  const GOOGLE_ACCOUNTS = [
-    ['nueva', 'Una cuenta nueva (la tuya)'],
-    ['ej-marta', 'Marta, conductora de ejemplo'],
-    ['ej-lucia', 'Lucía, acompañante de ejemplo'],
-    ['ej-diego', 'Diego, conductor de ejemplo'],
-  ];
   const RATING_ROLES = ['driver', 'rider'];
   const PRICE_WORDS = /\$|\b(precios?|tarifas?|pesos|usd|d[oó]lar(es)?)\b/i;
   const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
@@ -28,7 +21,6 @@
     denuncias: 'Recibió varias denuncias.',
     otro: 'No cumplió las reglas del sitio.',
   };
-  const GOOGLE_CLIENT_ID = /^[0-9]{5,30}-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$/;
   const MAX_COMMENT = 300;
   const AR = { timeZone: 'America/Argentina/Buenos_Aires' };
   const untilText = (seconds) => {
@@ -69,14 +61,45 @@
     return canvas.toDataURL('image/jpeg', 0.85);
   }
 
-  // En la prueba no hay fotos reales de Google: se dibuja una de ejemplo.
-  const googlePhoto = () => drawnPhoto('#d9f1e4', '#d9a37f', '#0b6e4f');
+  // Recorta la foto elegida en un cuadrado chico, como hace el servidor de verdad.
+  async function squarePhoto(file) {
+    if (!(file instanceof Blob) || !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 8 * 1024 * 1024) return null;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const side = Math.min(bitmap.width, bitmap.height);
+      const canvas = Object.assign(document.createElement('canvas'), { width: 160, height: 160 });
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 160, 160);
+      ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, 160, 160);
+      return canvas.toDataURL('image/jpeg', 0.85);
+    } catch {
+      return null;
+    }
+  }
+
+  // Igual que login_id() de api.php: un correo, o un celular guardado con código de país (+54 9 …).
+  function loginId(value) {
+    const text = clean(value).toLowerCase();
+    if (text.includes('@')) return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text) && text.length <= 254 ? text : null;
+    if (!/^\+?[0-9 ()\-.]{8,25}$/.test(text)) return null;
+    let digits = text.replace(/\D/g, '');
+    if (digits.length < 10) return null;
+    if (digits.startsWith('00')) digits = digits.slice(2);
+    if ((digits.length === 11 || digits.length === 13) && digits[0] === '0') digits = digits.slice(1);
+    if (digits.length === 12 && digits.startsWith('1115')) digits = `11${digits.slice(4)}`;
+    if (digits.length === 10 && digits[0] !== '0') digits = `549${digits}`;
+    else if (digits.length === 12 && digits.startsWith('54') && digits[2] !== '9') digits = `549${digits.slice(2)}`;
+    return digits[0] !== '0' && digits.length >= 11 && digits.length <= 15 ? `+${digits}` : null;
+  }
+  // Contraseña de Marta en la prueba ("marta-prueba"), ya en el formato en que se guarda.
+  const MARTA_PASSWORD = 'd4dc5b1de0b128e99ae4a3d5a52ce030526be7947ce121997755a3c79e9926d1';
 
   function seed() {
     const day = today();
     const ts = now();
     const user = (id, name, email, ago) => ({
-      id, email, name, password: '', google_sub: `prueba-${id}`, google_picture: '', photo: '', photo_off: 0,
+      id, email, name, password: '', photo: '',
       is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: ts - ago * 86400,
     });
     const trip = (owner, origin, destination, inDays, hour, seats, driver, phone, vehicle, notes) => ({
@@ -87,12 +110,11 @@
       id: newId(), rater, rated, role, stars, comment, created: ts - ago * 86400, updated: ts - ago * 86400,
     });
     return {
-      settings: { googleClientId: '1234567890-pruebaasiento.apps.googleusercontent.com' },
       users: [
-        { ...user('ej-marta', 'Marta', 'marta@ejemplo.com', 20), google_picture: 'prueba', photo: drawnPhoto('#cfe0fb', '#e8b48f', '#1f55c7') },
+        { ...user('ej-marta', 'Marta', '+5491100001111', 20), password: MARTA_PASSWORD, photo: drawnPhoto('#cfe0fb', '#e8b48f', '#1f55c7') },
         user('ej-diego', 'Diego', 'diego@ejemplo.com', 9),
         user('ej-rosa', 'Rosa', 'rosa@ejemplo.com', 3),
-        { ...user('ej-lucia', 'Lucía', 'lucia@ejemplo.com', 15), google_picture: 'prueba', photo: drawnPhoto('#fde7c2', '#c98e6b', '#b42318') },
+        { ...user('ej-lucia', 'Lucía', 'lucia@ejemplo.com', 15), photo: drawnPhoto('#fde7c2', '#c98e6b', '#b42318') },
         user('ej-pablo', 'Pablo', 'pablo@ejemplo.com', 12),
       ],
       trips: [
@@ -152,8 +174,7 @@
   const ownerOf = (trip) => userById(trip.owner) || {};
   const byDayHour = (a, b) => (a.day + a.hour).localeCompare(b.day + b.hour);
   const publicUser = (u) => (u ? {
-    id: u.id, email: u.email, name: u.name, created: u.created, admin: u.is_admin === 1, google: Boolean(u.google_sub),
-    photo: u.photo || null, googlePicture: Boolean(u.google_picture),
+    id: u.id, email: u.email, name: u.name, created: u.created, admin: u.is_admin === 1, photo: u.photo || null,
   } : null);
   const suspended = (account) => fail(`Tu cuenta está suspendida${account.blocked_until ? untilText(account.blocked_until) : ''}.`
     + (account.blocked_reason ? ` Motivo: ${account.blocked_reason}` : ''), 403);
@@ -161,10 +182,6 @@
   const ratingsOf = (id, role = '') => db.ratings.filter((r) => r.rated === id && userById(r.rater)?.blocked !== 1 && (!role || r.role === role));
   const average = (list) => (list.length ? Math.round((list.reduce((sum, r) => sum + r.stars, 0) / list.length) * 10) / 10 : null);
   const pair = (list) => ({ rating: average(list), count: list.length });
-  // La foto sale sola de la cuenta de Google, salvo que la hayan quitado.
-  const googlePhotoFor = (account) => {
-    if (!account.photo && !account.photo_off && account.google_picture) account.photo = googlePhoto();
-  };
 
   async function handle(method, action, params, input) {
     const mine = params.get('mine') === '1';
@@ -202,7 +219,7 @@
 
     switch (action) {
       case 'session':
-        return { csrf: 'prueba', today: today(), user: publicUser(user), googleClientId: db.settings.googleClientId };
+        return { csrf: 'prueba', today: today(), user: publicUser(user) };
 
       case 'logout':
         db.uid = null;
@@ -210,44 +227,26 @@
 
       case 'login':
       case 'register': {
-        const email = clean(input.email).toLowerCase();
+        const login = loginId(input.login ?? input.email);
         const password = typeof input.password === 'string' ? input.password : '';
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !between(password, 10, 128)) {
-          fail('Revisá el correo y usá una contraseña de 10 a 128 caracteres.');
-        }
-        let account = db.users.find((u) => u.email === email);
+        if (!login) fail('Escribí tu correo o tu celular con código de área, sin 0 ni 15 (por ejemplo 11 2345 6789).');
+        if (!between(password, 10, 128)) fail('Usá una contraseña de 10 a 128 caracteres.');
+        const phone = login.startsWith('+');
+        let account = db.users.find((u) => u.email === login);
         if (action === 'register') {
           const name = clean(input.name);
           if (!between(name, 2, 80)) fail('Ingresá tu nombre (2 a 80 caracteres).');
-          if (account) fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
-          account = { id: newId(), email, name, password: await digest(password), google_sub: '', google_picture: '', photo: '', photo_off: 0,
+          if (account) fail(`Ya existe una cuenta con ese ${phone ? 'celular' : 'correo'}. Probá entrar.`, 409);
+          account = { id: newId(), email: login, name, password: await digest(password), photo: '',
             is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
           db.users.push(account);
           return signIn(account, true);
         }
         if (!account || !account.password || account.password !== await digest(password)) {
-          fail(account?.google_sub ? 'Esta cuenta entra con Google: tocá "Continuar con Google".' : 'Correo o contraseña incorrectos.', 401);
+          fail(`${phone ? 'Celular' : 'Correo'} o contraseña incorrectos.`, 401);
         }
         if (account.blocked === 1) suspended(account);
         return signIn(account);
-      }
-
-      case 'google': {
-        // En la prueba el botón de Google es simulado: deja entrar con una cuenta nueva o con una de ejemplo.
-        if (!db.settings.googleClientId) fail('El ingreso con Google no está activado.', 404);
-        const who = /^prueba:([\w-]+)$/.exec(String(input.credential || ''))?.[1];
-        if (!GOOGLE_ACCOUNTS.some(([id]) => id === who)) fail('No pudimos confirmar tu cuenta de Google. Probá de nuevo.', 401);
-        let account = who === 'nueva' ? db.users.find((u) => u.google_sub === 'prueba-google') : userById(who);
-        if (account) {
-          if (account.blocked === 1) suspended(account);
-          googlePhotoFor(account);
-          return signIn(account);
-        }
-        account = { id: newId(), email: 'google.prueba@ejemplo.com', name: 'Cuenta de Google (prueba)', google_sub: 'prueba-google',
-          google_picture: 'prueba', photo: '', photo_off: 0, is_admin: 0, blocked: 0, blocked_until: 0, blocked_reason: '', created: now() };
-        googlePhotoFor(account);
-        db.users.push(account);
-        return signIn(account, true);
       }
 
       case 'trips': {
@@ -365,18 +364,26 @@
         return { ok: true };
       }
 
-      case 'photo_google': {
+      case 'photo_upload': {
         const me = requireUser();
-        if (!me.google_picture) fail('Tu cuenta de Google no tiene foto.', 404);
-        me.photo_off = 0;
-        me.photo = googlePhoto();
+        const photo = await squarePhoto(input.photo);
+        if (!photo) fail('Elegí una foto JPG, PNG o WebP de hasta 8 MB.');
+        me.photo = photo;
         return { user: publicUser(me) };
       }
 
       case 'photo_delete': {
         const me = requireUser();
-        Object.assign(me, { photo: '', photo_off: 1 });
+        me.photo = '';
         return { user: publicUser(me) };
+      }
+
+      case 'password_change': {
+        const me = requireUser();
+        if (typeof input.current !== 'string' || me.password !== await digest(input.current)) fail('La contraseña actual no es correcta.', 403);
+        if (typeof input.password !== 'string' || !between(input.password, 10, 128)) fail('Usá una contraseña nueva de 10 a 128 caracteres.');
+        me.password = await digest(input.password);
+        return { ok: true };
       }
 
       case 'profile_name': {
@@ -431,7 +438,7 @@
             return {
               id: r.id, stars: r.stars, comment: r.comment, role: r.role, updated: r.updated,
               rater_id: rater.id, rater_name: rater.name, rater_email: rater.email,
-              rater_created: rater.created, rater_google: rater.google_sub ? 1 : 0,
+              rater_created: rater.created,
               rated_id: rated.id, rated_name: rated.name, rated_email: rated.email,
             };
           }),
@@ -459,7 +466,7 @@
             const list = ratingsOf(u.id);
             return {
               id: u.id, email: u.email, name: u.name, created: u.created, is_admin: u.is_admin, blocked: u.blocked,
-              blocked_until: u.blocked_until || 0, blocked_reason: u.blocked_reason || '', google: u.google_sub ? 1 : 0,
+              blocked_until: u.blocked_until || 0, blocked_reason: u.blocked_reason || '',
               trips: db.trips.filter((t) => t.owner === u.id && t.status !== 'deleted').length,
               trips_total: db.trips.filter((t) => t.owner === u.id).length,
               user_rating: average(list), user_ratings: list.length, photo: u.photo || null,
@@ -469,29 +476,22 @@
           }),
         };
 
-      case 'admin_settings':
-        if (method === 'POST') {
-          const clientId = clean(input.googleClientId);
-          if (clientId && !GOOGLE_CLIENT_ID.test(clientId)) {
-            fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
-          }
-          const googleAccounts = db.users.filter((u) => u.google_sub).length;
-          if (!clientId && googleAccounts) {
-            fail(`No se puede apagar: ${googleAccounts} ${googleAccounts === 1 ? 'cuenta entra' : 'cuentas entran'} con Google y no podrían volver a entrar. Si cambiaste de proyecto en Google, pegá el ID nuevo.`, 409);
-          }
-          db.settings.googleClientId = clientId;
-          return { ok: true };
-        }
-        return { googleClientId: db.settings.googleClientId };
-
       case 'admin_user': {
         const target = userById(input.id);
         if (!target) fail('Cuenta no encontrada.', 404);
         if (target.id === user.id && ['block', 'remove_admin'].includes(input.action)) fail('No podés hacerte eso a vos mismo.');
         if (input.action === 'block' && target.is_admin === 1) fail('Primero quitale la administración.');
         if (input.action === 'remove_photo') {
-          Object.assign(target, { photo: '', photo_off: 1 });
+          target.photo = '';
           return { ok: true };
+        }
+        if (input.action === 'reset_password') {
+          if (target.id === user.id) fail('Tu contraseña la cambiás en Mi perfil.');
+          const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+          const pick = () => Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => chars[b % chars.length]).join('');
+          const password = `${pick()}-${pick()}-${pick()}`;
+          target.password = await digest(password);
+          return { password };
         }
         if (input.action === 'block') {
           const reason = SUSPEND_REASONS[input.reason];
@@ -524,10 +524,14 @@
     if (!url.startsWith('api.php')) return realFetch(resource, options);
     const params = new URL(url, 'https://prueba.local/').searchParams;
     let input = {};
-    try {
-      input = options.body ? JSON.parse(options.body) : {};
-    } catch {
-      input = {};
+    if (options.body instanceof FormData) {
+      input = Object.fromEntries(options.body.entries());
+    } else {
+      try {
+        input = options.body ? JSON.parse(options.body) : {};
+      } catch {
+        input = {};
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
     try {
@@ -539,31 +543,6 @@
       console.error(error);
       return reply({ error: 'No se pudo completar la operación. Intentá nuevamente.' }, 503);
     }
-  };
-
-  // Dentro de Claude no se puede cargar el botón real de Google: este lo reemplaza y deja elegir con qué
-  // cuenta de ejemplo entrar, para probar las calificaciones entre conductores y acompañantes.
-  // En la página de verdad aparece el botón oficial y cada uno entra con su propia cuenta.
-  window.google = {
-    accounts: {
-      id: {
-        initialize(config) {
-          this.callback = config.callback;
-        },
-        renderButton(target) {
-          const select = Object.assign(document.createElement('select'), { id: 'google-prueba-cuenta' });
-          GOOGLE_ACCOUNTS.forEach(([value, text]) => select.append(new Option(text, value)));
-          const label = Object.assign(document.createElement('label'), { className: 'google-prueba', textContent: 'Entrar como' });
-          label.append(select);
-          const button = Object.assign(document.createElement('button'), {
-            type: 'button', className: 'btn btn-ghost', id: 'google-prueba', textContent: 'Continuar con Google (prueba)',
-          });
-          button.addEventListener('click', () => this.callback({ credential: `prueba:${select.value}` }));
-          target.replaceChildren(label, button);
-        },
-        disableAutoSelect() {},
-      },
-    },
   };
 
   document.addEventListener('click', async (event) => {

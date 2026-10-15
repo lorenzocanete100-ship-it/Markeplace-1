@@ -6,9 +6,9 @@ en la página. **No hay precios, reservas, pagos ni comisiones**: cada viaje
 aclara que solo se comparten los gastos de combustible y alguna comida.
 
 - Para viajar no hace falta cuenta: se llama o se escribe por WhatsApp directo al conductor.
-- Se entra con **correo y contraseña** o, si la administración lo activa, con la **cuenta de
-  Google** (sin documentos). Para publicar, el conductor entra y confirma que es un
-  particular que comparte gastos.
+- Cada uno crea su cuenta con su **correo o su número de celular** y una contraseña (sin
+  documentos). Para publicar, el conductor entra y confirma que es un particular que
+  comparte gastos.
 - Conductores y acompañantes se califican entre ellos después del viaje.
 - Si alguien escribe un precio, un monto o la palabra "tarifa", la página no lo deja publicar.
 - Los viajes que ya pasaron y los que están completos dejan de verse solos.
@@ -22,7 +22,7 @@ hosting web de Hostinger (planes Premium o Business).
 public/            ← esto es lo que va en public_html
   index.html       página
   api.php          servidor (cuentas, viajes, calificaciones y fotos)
-  config.php       configuración (código de administración y Google)
+  config.php       configuración (código de administración)
   .htaccess        seguridad (HTTPS lo fuerza Hostinger)
   favicon.svg
   assets/          estilos y JavaScript
@@ -31,8 +31,8 @@ tests/api_test.php pruebas automáticas
 
 Todo lo que se guarda va a `asiento-vacio-datos/`, una carpeta **al lado** de
 `public_html` (no adentro), para que nadie la pueda descargar: la base de
-datos, las sesiones, las fotos de perfil (`fotos/`) y las claves públicas de
-Google (`google-certs.json`). Se crea sola la primera vez que alguien entra.
+datos, las sesiones y las fotos de perfil (`fotos/`). Se crea sola la primera
+vez que alguien entra.
 
 ## Probar en tu computadora
 
@@ -40,10 +40,6 @@ Google (`google-certs.json`). Se crea sola la primera vez que alguien entra.
 php -S localhost:8000 -t public     # abrir http://localhost:8000
 php tests/api_test.php              # correr las pruebas
 ```
-
-Para probar el botón de Google en la computadora hace falta un ID de cliente que
-tenga autorizado `http://localhost:8000` (ver abajo). Las pruebas no lo
-necesitan: usan un "Google" de mentira.
 
 
 ## Calificaciones
@@ -66,56 +62,46 @@ perfil de estrellas con cuentas inventadas, hay un límite de calificaciones por
 día por cuenta y por conexión, y en Administrar → Calificaciones se marcan las
 hechas con cuentas de menos de una semana.
 
-## Cuentas: correo y contraseña, y Google (opcional)
+## Cuentas: correo o celular
 
-Cada uno crea su cuenta en "Entrar → Crear cuenta" con nombre, correo y contraseña
-(mínimo 10 caracteres). No hace falta configurar nada.
+Cada uno crea su cuenta en "Entrar → Crear cuenta" con su nombre, su **correo o su
+número de celular** y una contraseña (mínimo 10 caracteres). No hace falta
+configurar nada ni depender de Google. El correo o el celular sirven solo para
+entrar: no se muestran a nadie (el teléfono que se ve en cada viaje es el que el
+conductor escribe al publicarlo; si entró con su celular, ya aparece cargado).
 
-Además, la administración puede activar el botón "Continuar con Google": la cuenta
-se crea sola la primera vez con el nombre y la foto de Google. Hace falta un "ID de
-cliente" de Google (es gratis), que se consigue una sola vez:
+El celular se puede escribir de varias formas y es la misma cuenta: `11 2345 6789`,
+`011 15 2345 6789` o `+54 9 11 2345 6789` se guardan como `+5491123456789`. No se
+manda ningún SMS ni correo para confirmar.
 
-1. Entrar a <https://console.cloud.google.com/>, crear un proyecto y, en
-   "Pantalla de consentimiento de OAuth", elegir público "Externo", completar
-   el nombre del sitio y tocar "Publicar app" (si queda "en prueba", solo pueden
-   entrar los usuarios de prueba que se carguen ahí).
-2. En "Credenciales" → "Crear credenciales" → "ID de cliente de OAuth", elegir
-   "Aplicación web" y en "Orígenes de JavaScript autorizados" poner
-   `https://asientovacio.com.ar` y `https://www.asientovacio.com.ar`.
-3. Copiar el ID (termina en `.apps.googleusercontent.com`) y pegarlo en
-   Administrar → Ajustes.
+**Si alguien se olvida la contraseña**, la administración le da una nueva en
+Administrar → Usuarios → "Contraseña nueva" y se la pasa por WhatsApp; la que
+tenía deja de servir y se cierran sus sesiones. Después cada uno la cambia en
+"Mi perfil → Cambiar contraseña".
 
-Si alguien ya tenía cuenta con un correo de Gmail (o de una empresa que usa
-Google), al entrar con Google queda unida a esa cuenta: la contraseña anterior
-deja de servir y se cierran las sesiones que estaban abiertas. Con otros correos
-(Hotmail, Yahoo, etc.) no se une sola: hay que seguir entrando con la contraseña.
-El sitio comprueba la firma de Google por su cuenta, sin librerías extra (hace
-falta que PHP pueda bajar archivos por HTTPS, como en Hostinger).
-
-Las cuentas creadas con Google no tienen contraseña, así que una vez que alguien
-entró con Google, Ajustes no deja apagar el ingreso con Google (sí cambiar el ID).
-
-Las calificaciones de versiones anteriores, que no decían cómo viajaron, se toman
-como de conductor si la persona calificada publicó viajes, y si no, de acompañante.
+Las versiones anteriores tenían un ingreso con Google; ya no existe. Las cuentas
+con correo y contraseña de antes siguen funcionando igual. Las calificaciones de
+versiones anteriores, que no decían cómo viajaron, se toman como de conductor si
+la persona calificada publicó viajes, y si no, de acompañante.
 
 ## Fotos de perfil
 
-La foto de perfil es la de la cuenta de Google: se pone sola al entrar con Google
-y se actualiza si la persona la cambia ahí. Nadie sube fotos: las cuentas con
-correo y contraseña muestran la inicial del nombre. Desde "Mi perfil"
-se puede quitar (y ya no vuelve sola) o volver a mostrar. La foto se recorta
-cuadrada, se achica a 320 × 320 y se guarda en `asiento-vacio-datos/fotos`. Se ve
-en los viajes, en el perfil público y en las opiniones; quien no tiene foto
-muestra la inicial de su nombre. La administración puede quitar cualquier foto.
+Desde "Mi perfil" cada uno puede subir una foto o quitarla (es opcional). La foto
+se recorta cuadrada, se achica a 320 × 320 y se vuelve a guardar como JPEG, así se
+pierden los datos ocultos de la cámara (como la ubicación); se guarda en
+`asiento-vacio-datos/fotos`. Se ve en los viajes, en el perfil público y en las
+opiniones; quien no tiene foto muestra la inicial de su nombre. La administración
+puede quitar cualquier foto.
 
 ## Probar sin hosting
 
 `php demo/build.php > asiento-vacio-prueba.html` arma una sola página con la
 app y un servidor de mentira (`demo/mock-api.js`) que responde como `api.php`
-pero guarda todo en el navegador, con viajes y opiniones de ejemplo y un botón
-de Google simulado que deja entrar con una cuenta nueva o como Marta, Lucía o
-Diego (para probar las calificaciones en los dos sentidos). Sirve para probarla
-como artifact de Claude. El código de administración de prueba es `PRUEBA-2026`.
+pero guarda todo en el navegador, con viajes y opiniones de ejemplo. Se puede
+crear una cuenta con cualquier correo o celular, o entrar como Marta (celular
+`11 0000 1111`, contraseña `marta-prueba`) para probar las calificaciones en los dos
+sentidos. Sirve para probarla como artifact de Claude. El código de administración
+de prueba es `PRUEBA-2026`.
 
 ## Hostinger
 
@@ -155,8 +141,8 @@ menú para quien ya es administrador) hay un resumen y estas pestañas:
   baja. A cada usuario se lo puede suspender 1, 7 o 30 días o sin fecha, con un
   motivo que ve al intentar entrar; mientras dura no puede entrar, sus viajes no
   se ven y sus calificaciones no cuentan, y al cumplirse el plazo se levanta
-  sola. También se puede quitar su foto y nombrar o quitar administradores.
-- **Ajustes**: el ID de cliente de Google, para activar "Continuar con Google".
+  sola. También se le puede dar una contraseña nueva (si se la olvidó), quitar su
+  foto y nombrar o quitar administradores.
 
 La primera cuenta de administración se activa una sola vez con un código
 secreto: en `config.php` solo está su huella SHA-256. Para cambiar el código,

@@ -34,8 +34,6 @@ const SUSPEND_REASONS = [
     'denuncias' => 'Recibió varias denuncias.',
     'otro' => 'No cumplió las reglas del sitio.',
 ];
-const GOOGLE_ISSUERS = ['accounts.google.com', 'https://accounts.google.com'];
-const GOOGLE_CLIENT_ID = '/^[0-9]{5,30}-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$/';
 // En cada calificación se dice qué hacía en ese viaje la persona calificada.
 const RATING_ROLES = ['driver', 'rider'];
 
@@ -119,10 +117,7 @@ function connect(string $dir): PDO
         'users' => [
             'is_admin' => 'INTEGER NOT NULL DEFAULT 0', 'blocked' => 'INTEGER NOT NULL DEFAULT 0',
             'blocked_until' => 'INTEGER NOT NULL DEFAULT 0', 'blocked_reason' => "TEXT NOT NULL DEFAULT ''",
-            'google_sub' => "TEXT NOT NULL DEFAULT ''",
-            'photo' => "TEXT NOT NULL DEFAULT ''", 'google_picture' => "TEXT NOT NULL DEFAULT ''",
-            'auth_epoch' => 'INTEGER NOT NULL DEFAULT 0',
-            'photo_off' => 'INTEGER NOT NULL DEFAULT 0',
+            'photo' => "TEXT NOT NULL DEFAULT ''", 'auth_epoch' => 'INTEGER NOT NULL DEFAULT 0',
         ],
         'ratings' => ['role' => "TEXT NOT NULL DEFAULT ''"],
     ];
@@ -158,7 +153,6 @@ function connect(string $dir): PDO
         }
     }
     $columns = $columnsOf('users');
-    $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_sub) WHERE google_sub != ''");
 
     // La verificación con DNI se quitó: si quedaron fotos o solicitudes de una versión anterior, se borran.
     if (is_dir("$dir/verificaciones")) {
@@ -228,11 +222,6 @@ function query(PDO $db, string $sql, array $params = []): PDOStatement
     return $stmt;
 }
 
-function setting(PDO $db, string $key): string
-{
-    return (string)(query($db, 'SELECT value FROM settings WHERE key=?', [$key])->fetchColumn() ?: '');
-}
-
 // Promedio y cantidad de calificaciones de una cuenta: todas, o solo como conductor ('driver') o
 // como acompañante ('rider'). No cuentan las de cuentas suspendidas.
 function rating_sql(string $who, string $as, string $role = ''): string
@@ -249,16 +238,14 @@ function rating_pair(array $row, string $as): array
 
 function load_user(PDO $db, string $id): ?array
 {
-    return query($db, 'SELECT id,email,name,is_admin,blocked,google_sub,google_picture,photo,photo_off,created,auth_epoch FROM users WHERE id=?',
-        [$id])->fetch() ?: null;
+    return query($db, 'SELECT id,email,name,is_admin,blocked,photo,created,auth_epoch FROM users WHERE id=?', [$id])->fetch() ?: null;
 }
 
 function public_user(?array $user): ?array
 {
     return $user ? [
         'id' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'created' => (int)$user['created'],
-        'admin' => (int)$user['is_admin'] === 1, 'google' => $user['google_sub'] !== '',
-        'photo' => photo_url($user['photo']), 'googlePicture' => $user['google_picture'] !== '',
+        'admin' => (int)$user['is_admin'] === 1, 'photo' => photo_url($user['photo']),
     ] : null;
 }
 
@@ -312,26 +299,48 @@ function replace_photo(PDO $db, string $folder, array $user, string $file): void
     }
 }
 
-// La foto de perfil sale de la cuenta de Google, salvo que la persona (o la administración) la haya quitado.
-// Con $replace se cambia aunque ya haya una (por ejemplo, si cambió la foto en Google). Si Google no
-// responde, se sigue sin foto: no impide entrar.
-function google_photo(PDO $db, string $folder, string $uid, string $pattern, bool $replace): bool
+// Las cuentas se identifican con un correo o con un número de celular. Los celulares se guardan con el
+// código de país (+54 9 para Argentina), así se pueden escribir de distintas formas: "11 2345 6789",
+// "011 2345 6789" o "+54 9 11 2345 6789" son la misma cuenta. Devuelve null si no es ninguna de las dos.
+function login_id(mixed $value): ?string
 {
-    $user = load_user($db, $uid);
-    $url = $user['google_picture'] ?? '';
-    if ($url === '' || !preg_match($pattern, $url) || (int)$user['photo_off'] === 1 || ($user['photo'] !== '' && !$replace)
-        || !limit($db, 'gphoto:' . $uid, 10, 86400)) {
-        return false;
+    $value = strtolower(clean($value));
+    if (str_contains($value, '@')) {
+        return filter_var($value, FILTER_VALIDATE_EMAIL) && strlen($value) <= 254 ? $value : null;
     }
-    // Google entrega la foto chica (=s96-c): se pide una más grande.
-    $url = preg_replace('/=s\d+(-c)?$/', '=s400-c', $url);
-    $bytes = @file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 5, 'follow_location' => 0]]), 0, MAX_PHOTO_BYTES + 1);
-    $file = is_string($bytes) && strlen($bytes) <= MAX_PHOTO_BYTES ? save_photo($bytes, $folder) : null;
-    if (!$file) {
-        return false;
+    if (!preg_match('/^\+?[0-9 ()\-.]{8,25}$/', $value)) {
+        return null;
     }
-    replace_photo($db, $folder, $user, $file);
-    return true;
+    $digits = preg_replace('/\D/', '', $value);
+    if (strlen($digits) < 10) {
+        return null;
+    }
+    if (str_starts_with($digits, '00')) {
+        $digits = substr($digits, 2);  // 00 54 9 …
+    }
+    if ((strlen($digits) === 11 || strlen($digits) === 13) && $digits[0] === '0') {
+        $digits = substr($digits, 1);  // 011 2345 6789 o 011 15 2345 6789
+    }
+    if (strlen($digits) === 12 && str_starts_with($digits, '1115')) {
+        $digits = '11' . substr($digits, 4);  // 11 15 2345 6789 (el 15 de los celulares de Buenos Aires)
+    }
+    if (strlen($digits) === 10 && $digits[0] !== '0') {
+        $digits = '549' . $digits;  // 11 2345 6789
+    } elseif (strlen($digits) === 12 && str_starts_with($digits, '54') && $digits[2] !== '9') {
+        $digits = '549' . substr($digits, 2);  // 54 11 2345 6789
+    }
+    return $digits[0] !== '0' && strlen($digits) >= 11 && strlen($digits) <= 15 ? '+' . $digits : null;
+}
+
+function new_password(): string
+{
+    // Fácil de dictar o copiar: sin letras que se confunden (0/O, 1/l/I).
+    $chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    $groups = [];
+    for ($g = 0; $g < 3; $g++) {
+        $groups[] = implode('', array_map(fn() => $chars[random_int(0, strlen($chars) - 1)], range(1, 4)));
+    }
+    return implode('-', $groups);
 }
 
 function admin_code_ok(array $config, mixed $code): bool
@@ -353,99 +362,6 @@ function sign_in(PDO $db, string $uid, bool $new = false): never
     session_regenerate_id(true);
     $_SESSION = ['uid' => $uid, 'epoch' => (int)$user['auth_epoch'], 'csrf' => bin2hex(random_bytes(32))];
     respond(['csrf' => $_SESSION['csrf'], 'user' => public_user($user), 'new' => $new]);
-}
-
-function b64url(string $value): string|false
-{
-    return base64_decode(strtr($value, '-_', '+/'), true);
-}
-
-function der(string $tag, string $value): string
-{
-    $length = strlen($value);
-    $bytes = ltrim(pack('N', $length), "\0");
-    return $tag . ($length < 128 ? chr($length) : chr(0x80 | strlen($bytes)) . $bytes) . $value;
-}
-
-// Arma la clave pública (PEM) a partir de la clave RSA que publica Google en formato JWK.
-function jwk_pem(array $jwk): ?string
-{
-    $n = b64url((string)($jwk['n'] ?? ''));
-    $e = b64url((string)($jwk['e'] ?? ''));
-    if (!$n || !$e) {
-        return null;
-    }
-    $integer = fn(string $x) => der("\x02", ord($x[0]) > 0x7f ? "\0" . $x : $x);
-    $algorithm = der("\x30", der("\x06", "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01") . "\x05\x00");
-    $spki = der("\x30", $algorithm . der("\x03", "\0" . der("\x30", $integer($n) . $integer($e))));
-    return "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($spki), 64, "\n") . "-----END PUBLIC KEY-----\n";
-}
-
-// Claves públicas de Google, guardadas un rato para no pedirlas en cada ingreso.
-function google_keys(string $dir, string $url, bool $refresh): array
-{
-    $file = "$dir/google-certs.json";
-    $cache = is_file($file) ? json_decode((string)file_get_contents($file), true) : null;
-    $cache = is_array($cache) && is_array($cache['keys'] ?? null) ? $cache : null;
-    $now = time();
-    // Aunque pidan una clave desconocida, se vuelve a consultar a Google como mucho cada 5 minutos.
-    if ($cache && $cache['expires'] > $now && (!$refresh || $cache['fetched'] > $now - 300)) {
-        return $cache['keys'];
-    }
-    $body = @file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 8]]));
-    $jwks = is_string($body) ? json_decode($body, true) : null;
-    if (!is_array($jwks['keys'] ?? null)) {
-        error_log("Asiento Vacío: no se pudieron bajar las claves de Google de $url");
-        return $cache['keys'] ?? [];
-    }
-    $maxAge = 3600;
-    foreach ($http_response_header ?? [] as $line) {
-        if (preg_match('/^cache-control:.*max-age=(\d+)/i', $line, $m)) {
-            $maxAge = max(300, min(86400, (int)$m[1]));
-        }
-    }
-    @file_put_contents($file, json_encode(['fetched' => $now, 'expires' => $now + $maxAge, 'keys' => $jwks['keys']]), LOCK_EX);
-    return $jwks['keys'];
-}
-
-// Comprueba el comprobante que entrega el botón de Google: firma, destinatario, vencimiento y correo confirmado.
-function google_identity(string $jwt, string $clientId, string $dir, string $certsUrl): ?array
-{
-    $parts = explode('.', $jwt);
-    if (count($parts) !== 3) {
-        return null;
-    }
-    [$head, $body, $signature] = $parts;
-    $header = json_decode((string)b64url($head), true);
-    $claims = json_decode((string)b64url($body), true);
-    $signature = b64url($signature);
-    if (!is_array($header) || !is_array($claims) || !is_string($signature)
-        || ($header['alg'] ?? '') !== 'RS256' || !is_string($header['kid'] ?? null)) {
-        return null;
-    }
-    $pem = null;
-    foreach ([false, true] as $refresh) {  // si Google cambió sus claves, se vuelven a pedir una vez
-        foreach (google_keys($dir, $certsUrl, $refresh) as $key) {
-            if (is_array($key) && ($key['kid'] ?? null) === $header['kid'] && ($key['kty'] ?? '') === 'RSA') {
-                $pem = jwk_pem($key);
-            }
-        }
-        if ($pem) {
-            break;
-        }
-    }
-    if (!$pem || openssl_verify("$head.$body", $signature, $pem, OPENSSL_ALGO_SHA256) !== 1) {
-        return null;
-    }
-    $now = time();
-    $valid = in_array($claims['iss'] ?? null, GOOGLE_ISSUERS, true)
-        && ($claims['aud'] ?? null) === $clientId
-        && is_int($claims['exp'] ?? null) && $claims['exp'] > $now - 60
-        && is_int($claims['iat'] ?? null) && $claims['iat'] < $now + 300
-        && is_string($claims['sub'] ?? null) && preg_match('/^[A-Za-z0-9_-]{1,255}$/', $claims['sub'])
-        && ($claims['email_verified'] ?? false) === true
-        && is_string($claims['email'] ?? null) && filter_var($claims['email'], FILTER_VALIDATE_EMAIL);
-    return $valid ? $claims : null;
 }
 
 try {
@@ -536,8 +452,7 @@ try {
             respond(['ok' => true]);
 
         case 'GET session':
-            respond(['csrf' => $_SESSION['csrf'], 'today' => today(), 'user' => public_user($user),
-                'googleClientId' => setting($db, 'google_client_id')]);
+            respond(['csrf' => $_SESSION['csrf'], 'today' => today(), 'user' => public_user($user)]);
 
         case 'POST logout':
             $_SESSION = [];
@@ -550,11 +465,16 @@ try {
             if (!limit($db, 'auth:' . $ip, 25, 900)) {
                 fail('Demasiados intentos. Esperá 15 minutos.', 429);
             }
-            $email = strtolower(clean($input['email'] ?? ''));
+            // Se entra con correo o con número de celular (antes el campo se llamaba "email").
+            $login = login_id($input['login'] ?? $input['email'] ?? '');
             $password = is_string($input['password'] ?? null) ? $input['password'] : '';
-            if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 254 || !length_between($password, 10, 128)) {
-                fail('Revisá el correo y usá una contraseña de 10 a 128 caracteres.');
+            if ($login === null) {
+                fail('Escribí tu correo o tu celular con código de área, sin 0 ni 15 (por ejemplo 11 2345 6789).');
             }
+            if (!length_between($password, 10, 128)) {
+                fail('Usá una contraseña de 10 a 128 caracteres.');
+            }
+            $phone = str_starts_with($login, '+');
             if ($action === 'register') {
                 $name = clean($input['name'] ?? '');
                 if (!length_between($name, 2, 80)) {
@@ -563,86 +483,20 @@ try {
                 $uid = bin2hex(random_bytes(16));
                 try {
                     query($db, 'INSERT INTO users(id,email,name,password,created) VALUES (?,?,?,?,?)',
-                        [$uid, $email, $name, password_hash($password, PASSWORD_DEFAULT), time()]);
+                        [$uid, $login, $name, password_hash($password, PASSWORD_DEFAULT), time()]);
                 } catch (PDOException) {
-                    fail('Ya existe una cuenta con ese correo. Probá entrar.', 409);
+                    fail('Ya existe una cuenta con ese ' . ($phone ? 'celular' : 'correo') . '. Probá entrar.', 409);
                 }
                 sign_in($db, $uid, true);
             }
-            $row = query($db, 'SELECT id,password,google_sub,blocked,blocked_until,blocked_reason FROM users WHERE email=?', [$email])->fetch();
+            $row = query($db, 'SELECT id,password,blocked,blocked_until,blocked_reason FROM users WHERE email=?', [$login])->fetch();
             if (!$row || !password_verify($password, $row['password'])) {
-                fail($row && $row['google_sub'] !== ''
-                    ? 'Esta cuenta entra con Google: tocá "Continuar con Google".'
-                    : 'Correo o contraseña incorrectos.', 401);
+                fail(($phone ? 'Celular' : 'Correo') . ' o contraseña incorrectos.', 401);
             }
             if ((int)$row['blocked'] === 1) {
                 suspended($row);
             }
             sign_in($db, $row['id']);
-
-        case 'POST google':
-            $clientId = setting($db, 'google_client_id');
-            if ($clientId === '') {
-                fail('El ingreso con Google no está activado.', 404);
-            }
-            if (!limit($db, 'google:' . $ip, 30, 900)) {
-                fail('Demasiados intentos. Esperá 15 minutos.', 429);
-            }
-            $token = $input['credential'] ?? '';
-            $claims = is_string($token) && strlen($token) < 8192
-                ? google_identity($token, $clientId, $dir, $config['google_certs_url'])
-                : null;
-            if (!$claims) {
-                fail('No pudimos confirmar tu cuenta de Google. Probá de nuevo.', 401);
-            }
-            $email = strtolower($claims['email']);
-            $domain = substr($email, strrpos($email, '@') + 1);
-            // Google solo responde por quién es el dueño del correo en Gmail y en dominios de Google Workspace (hd).
-            $googleOwnsEmail = in_array($domain, ['gmail.com', 'googlemail.com'], true)
-                || (is_string($claims['hd'] ?? null) && strtolower($claims['hd']) === $domain);
-            // El nombre que muestra Google (nunca el correo: quedaría a la vista en los viajes).
-            $name = mb_substr(clean($claims['name'] ?? ''), 0, 80);
-            if (mb_strlen($name) < 2) {
-                $name = mb_substr(clean($claims['given_name'] ?? ''), 0, 80);
-            }
-            $picture = is_string($claims['picture'] ?? null) && preg_match($config['google_picture_pattern'], $claims['picture'])
-                ? $claims['picture'] : '';
-            $fields = 'SELECT id,name,google_sub,google_picture,blocked,blocked_until,blocked_reason FROM users';
-            $account = query($db, "$fields WHERE google_sub=?", [$claims['sub']])->fetch()
-                ?: query($db, "$fields WHERE email=?", [$email])->fetch();
-            if ($account) {
-                if ($account['google_sub'] !== '' && $account['google_sub'] !== $claims['sub']) {
-                    fail('Ese correo ya está unido a otra cuenta de Google.', 409);
-                }
-                if ((int)$account['blocked'] === 1) {
-                    suspended($account);
-                }
-                if ($account['google_sub'] === '') {
-                    // Cuenta creada con correo y contraseña. Se une a Google solo si Google responde por quién es el
-                    // dueño del correo (Gmail o Google Workspace); si no, se sigue entrando con la contraseña.
-                    if (!$googleOwnsEmail) {
-                        fail('Ya hay una cuenta con ese correo. Entrá con tu correo y contraseña.', 409);
-                    }
-                    // Por si otra persona hubiera creado la cuenta con ese correo antes que el dueño, la contraseña
-                    // deja de servir, se cierran las sesiones que estaban abiertas y queda el nombre de Google.
-                    query($db, 'UPDATE users SET google_sub=?, password=?, name=?, auth_epoch=auth_epoch+1 WHERE id=?', [
-                        $claims['sub'], password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT),
-                        mb_strlen($name) >= 2 ? $name : $account['name'], $account['id'],
-                    ]);
-                }
-                // Si cambió la foto en Google, se actualiza la del perfil.
-                query($db, 'UPDATE users SET google_picture=? WHERE id=?', [$picture, $account['id']]);
-                google_photo($db, $photos, $account['id'], $config['google_picture_pattern'], $picture !== $account['google_picture']);
-                sign_in($db, $account['id']);
-            }
-            if (mb_strlen($name) < 2) {
-                $name = 'Usuario de Google';  // se cambia en Mi perfil
-            }
-            $uid = bin2hex(random_bytes(16));
-            query($db, 'INSERT INTO users(id,email,name,password,created,google_sub,google_picture) VALUES (?,?,?,?,?,?,?)',
-                [$uid, $email, $name, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), time(), $claims['sub'], $picture]);
-            google_photo($db, $photos, $uid, $config['google_picture_pattern'], false);
-            sign_in($db, $uid, true);
 
         case 'GET trips':
             if (($_GET['mine'] ?? '') === '1') {
@@ -819,24 +673,43 @@ try {
             query($db, 'DELETE FROM ratings WHERE rater=? AND rated=?', [$me['id'], (string)($input['user'] ?? '')]);
             respond(['ok' => true]);
 
-        case 'POST photo_google':
-            // Volver a mostrar la foto de Google después de haberla quitado.
+        case 'POST photo_upload':
             $me = $requireUser();
-            if ($me['google_picture'] === '' || !preg_match($config['google_picture_pattern'], $me['google_picture'])) {
-                fail('Tu cuenta de Google no tiene foto.', 404);
+            if (!limit($db, 'photo:' . $me['id'], 10, 86400)) {
+                fail('Cambiaste la foto muchas veces hoy. Probá mañana.', 429);
             }
-            query($db, 'UPDATE users SET photo_off=0 WHERE id=?', [$me['id']]);
-            if (!google_photo($db, $photos, $me['id'], $config['google_picture_pattern'], true)) {
-                fail('No pudimos traer tu foto de Google. Probá más tarde.', 502);
+            $upload = $_FILES['photo'] ?? null;
+            $ok = is_array($upload) && ($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK
+                && is_uploaded_file($upload['tmp_name']) && $upload['size'] <= MAX_PHOTO_BYTES;
+            $file = $ok ? save_photo((string)file_get_contents($upload['tmp_name']), $photos) : null;
+            if (!$file) {
+                fail('Elegí una foto JPG, PNG o WebP de hasta 8 MB.');
             }
+            replace_photo($db, $photos, $me, $file);
             respond(['user' => public_user(load_user($db, $me['id']))]);
 
         case 'POST photo_delete':
-            // Queda sin foto también en los próximos ingresos con Google.
             $me = $requireUser();
             replace_photo($db, $photos, $me, '');
-            query($db, 'UPDATE users SET photo_off=1 WHERE id=?', [$me['id']]);
             respond(['user' => public_user(load_user($db, $me['id']))]);
+
+        case 'POST password_change':
+            $me = $requireUser();
+            if (!limit($db, 'password:' . $me['id'], 10, 3600)) {
+                fail('Demasiados intentos. Esperá una hora.', 429);
+            }
+            $current = query($db, 'SELECT password FROM users WHERE id=?', [$me['id']])->fetchColumn();
+            if (!is_string($input['current'] ?? null) || !password_verify($input['current'], (string)$current)) {
+                fail('La contraseña actual no es correcta.', 403);
+            }
+            $password = is_string($input['password'] ?? null) ? $input['password'] : '';
+            if (!length_between($password, 10, 128)) {
+                fail('Usá una contraseña nueva de 10 a 128 caracteres.');
+            }
+            // Se cierran las otras sesiones abiertas (por ejemplo, en un teléfono perdido); esta sigue.
+            query($db, 'UPDATE users SET password=?, auth_epoch=auth_epoch+1 WHERE id=?', [password_hash($password, PASSWORD_DEFAULT), $me['id']]);
+            $_SESSION['epoch'] = (int)$me['auth_epoch'] + 1;
+            respond(['ok' => true]);
 
         case 'POST admin_claim':
             if (!$user) {
@@ -873,7 +746,7 @@ try {
         case 'GET admin_ratings':
             respond(['items' => query($db, 'SELECT r.id, r.stars, r.comment, r.role, r.updated,
                     w.id AS rater_id, w.name AS rater_name, w.email AS rater_email,
-                    w.created AS rater_created, length(w.google_sub) > 0 AS rater_google,
+                    w.created AS rater_created,
                     d.id AS rated_id, d.name AS rated_name, d.email AS rated_email
                 FROM ratings r JOIN users w ON w.id=r.rater JOIN users d ON d.id=r.rated
                 ORDER BY r.updated DESC LIMIT 500')->fetchAll()]);
@@ -894,29 +767,11 @@ try {
 
         case 'GET admin_users':
             respond(['items' => array_map(fn($u) => [...$u, 'photo' => photo_url($u['photo'])], query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked,
-                    u.blocked_until, u.blocked_reason, u.google_sub != '' AS google,
+                    u.blocked_until, u.blocked_reason,
                     (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id AND t.status!='deleted') AS trips,
                     (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total, u.photo, " . rating_sql('u.id', 'user') . ', '
                     . rating_sql('u.id', 'driver', 'driver') . ', ' . rating_sql('u.id', 'rider', 'rider') . "
                 FROM users u ORDER BY u.created DESC LIMIT 1000")->fetchAll())]);
-
-        case 'GET admin_settings':
-            respond(['googleClientId' => setting($db, 'google_client_id')]);
-
-        case 'POST admin_settings':
-            $clientId = clean($input['googleClientId'] ?? '');
-            if ($clientId !== '' && !preg_match(GOOGLE_CLIENT_ID, $clientId)) {
-                fail('Ese no parece un ID de cliente de Google: tiene que terminar en .apps.googleusercontent.com.');
-            }
-            // Las cuentas creadas con Google no tienen contraseña: si se apaga Google, no podrían volver a entrar.
-            $googleAccounts = (int)$db->query("SELECT COUNT(*) FROM users WHERE google_sub != ''")->fetchColumn();
-            if ($clientId === '' && $googleAccounts > 0) {
-                fail("No se puede apagar: $googleAccounts " . ($googleAccounts === 1 ? 'cuenta entra' : 'cuentas entran')
-                    . ' con Google y no podrían volver a entrar. Si cambiaste de proyecto en Google, pegá el ID nuevo.', 409);
-            }
-            query($db, 'INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
-                ['google_client_id', $clientId]);
-            respond(['ok' => true]);
 
         case 'POST admin_trip':
             $trip = query($db, 'SELECT id,status FROM trips WHERE id=?', [(string)($input['id'] ?? '')])->fetch();
@@ -957,8 +812,17 @@ try {
             }
             if ($do === 'remove_photo') {
                 replace_photo($db, $photos, $target, '');
-                query($db, 'UPDATE users SET photo_off=1 WHERE id=?', [$target['id']]);
                 respond(['ok' => true]);
+            }
+            if ($do === 'reset_password') {
+                // No hay recuperación por correo ni por SMS: si alguien se olvida la contraseña, la administración
+                // le da una nueva (y se la pasa por WhatsApp). Se cierran las sesiones que tenía abiertas.
+                if ($target['id'] === $user['id']) {
+                    fail('Tu contraseña la cambiás en Mi perfil.');
+                }
+                $password = new_password();
+                query($db, 'UPDATE users SET password=?, auth_epoch=auth_epoch+1 WHERE id=?', [password_hash($password, PASSWORD_DEFAULT), $target['id']]);
+                respond(['password' => $password]);
             }
             $changes = ['unblock' => "blocked=0, blocked_until=0, blocked_reason=''", 'make_admin' => 'is_admin=1',
                 'remove_admin' => 'is_admin=0'];
