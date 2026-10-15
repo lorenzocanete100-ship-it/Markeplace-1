@@ -371,6 +371,7 @@ legend { font-weight: 700; margin-bottom: 8px; padding: 0; }
 .password-box summary { cursor: pointer; font-weight: 600; color: var(--primary-text); }
 #ask-text { display: grid; gap: 8px; }
 .tell-value { font-size: 1.4rem; letter-spacing: .06em; user-select: all; font-variant-numeric: tabular-nums; }
+#ask-text .btn { justify-self: start; }
 
 /* Fotos de perfil */
 .avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--primary-soft); }
@@ -390,3 +391,8 @@ legend { font-weight: 700; margin-bottom: 8px; padding: 0; }
 .small { font-size: .85rem; }
 .review-head .who { display: inline-flex; align-items: center; gap: 8px; }
 .item-title .avatar { vertical-align: middle; margin-right: 6px; }
+
+/* WhatsApp de la administración */
+.contact-form { justify-items: start; }
+.contact-form label { justify-self: stretch; }
+.forgot-link { font-weight: 600; white-space: nowrap; }

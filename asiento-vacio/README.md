@@ -66,29 +66,47 @@ hechas con cuentas de menos de una semana.
 
 Cada uno crea su cuenta en "Entrar → Crear cuenta" con su nombre, su **correo o su
 número de celular** y una contraseña (mínimo 10 caracteres). No hace falta
-configurar nada ni depender de Google. El correo o el celular sirven solo para
-entrar: no se muestran a nadie (el teléfono que se ve en cada viaje es el que el
-conductor escribe al publicarlo; si entró con su celular, ya aparece cargado).
+configurar nada ni depender de Google. El correo o el celular sirven para entrar y
+no aparecen en el perfil ni en las opiniones. El teléfono que se ve en cada viaje
+es el que el conductor escribe al publicarlo (si entró con su celular, ya aparece
+cargado), así que en ese caso su usuario queda a la vista: por eso, además del
+límite de intentos por conexión, hay uno de 10 contraseñas mal puestas cada 15
+minutos por cuenta.
 
 El celular se puede escribir de varias formas y es la misma cuenta: `11 2345 6789`,
-`011 15 2345 6789` o `+54 9 11 2345 6789` se guardan como `+5491123456789`. No se
+`011 15 2345 6789` o `+54 9 11 2345 6789` se guardan como `+5491123456789`, y
+`0351 15 555 1234` o `351 555 1234` como `+5493515551234` (la característica puede
+ser de 2, 3 o 4 cifras). Si falta la característica (`15 2345 6789`), la página
+pide escribirla. Un celular de otro país se escribe con `+` y su código. No se
 manda ningún SMS ni correo para confirmar.
 
 **Si alguien se olvida la contraseña**, la administración le da una nueva en
-Administrar → Usuarios → "Contraseña nueva" y se la pasa por WhatsApp; la que
-tenía deja de servir y se cierran sus sesiones. Después cada uno la cambia en
-"Mi perfil → Cambiar contraseña".
+Administrar → Usuarios → "Contraseña nueva" y se la manda con el botón que aparece:
+por WhatsApp a su celular o a su correo (no a otro número, así la recibe la persona
+de la cuenta). La que tenía deja de servir y se cierran sus sesiones. Después cada
+uno la cambia en "Mi perfil → Cambiar contraseña". Para que la gente sepa a quién
+avisar, en Administrar está "Tu WhatsApp para quien se olvida la contraseña": ese
+número aparece en Entrar como "Escribirle por WhatsApp". A otro administrador no se
+le puede dar una contraseña nueva (primero hay que quitarle la administración).
 
-Las versiones anteriores tenían un ingreso con Google; ya no existe. Las cuentas
-con correo y contraseña de antes siguen funcionando igual. Las calificaciones de
-versiones anteriores, que no decían cómo viajaron, se toman como de conductor si
-la persona calificada publicó viajes, y si no, de acompañante.
+**Cuentas de Google de versiones anteriores.** Las versiones anteriores tenían un
+ingreso con Google; ya no existe. Las cuentas creadas con Google (o que se unieron
+a Google) no tienen una contraseña que la persona conozca: al intentar entrar ven
+"Esta cuenta se creó con Google… Pedile a la administración una contraseña nueva",
+y en Administrar → Usuarios aparecen como "Sin contraseña (era de Google)". Si
+todavía tienen la sesión abierta, en Mi perfil eligen una contraseña sin escribir
+la actual. Las demás cuentas con correo y contraseña siguen funcionando igual.
+
+Las calificaciones de versiones anteriores, que no decían cómo viajaron, se toman
+como de conductor si la persona calificada publicó viajes, y si no, de acompañante.
 
 ## Fotos de perfil
 
-Desde "Mi perfil" cada uno puede subir una foto o quitarla (es opcional). La foto
-se recorta cuadrada, se achica a 320 × 320 y se vuelve a guardar como JPEG, así se
-pierden los datos ocultos de la cámara (como la ubicación); se guarda en
+Desde "Mi perfil" cada uno puede subir una foto o quitarla (es opcional). La página
+la achica antes de mandarla; el servidor acepta hasta 8 MB y 4096 × 4096 píxeles, la
+endereza si el teléfono la guardó girada, la recorta cuadrada, la achica a 320 × 320
+y la vuelve a guardar como JPEG, así se pierden los datos ocultos de la cámara (como
+la ubicación); se guarda en
 `asiento-vacio-datos/fotos`. Se ve en los viajes, en el perfil público y en las
 opiniones; quien no tiene foto muestra la inicial de su nombre. La administración
 puede quitar cualquier foto.
@@ -142,12 +160,15 @@ menú para quien ya es administrador) hay un resumen y estas pestañas:
   motivo que ve al intentar entrar; mientras dura no puede entrar, sus viajes no
   se ven y sus calificaciones no cuentan, y al cumplirse el plazo se levanta
   sola. También se le puede dar una contraseña nueva (si se la olvidó), quitar su
-  foto y nombrar o quitar administradores.
+  foto y nombrar o quitar administradores. El buscador encuentra un celular
+  escrito de cualquier forma (`11 2345 6789`, `+54 9 11 2345-6789`).
 
-La primera cuenta de administración se activa una sola vez con un código
-secreto: en `config.php` solo está su huella SHA-256. Para cambiar el código,
-reemplazá esa huella por la de uno nuevo (`printf 'CODIGONUEVO' | sha256sum`,
-en mayúsculas y sin guiones).
+La primera cuenta de administración se activa con un código secreto: en
+`config.php` solo está su huella SHA-256. El código sirve siempre, así que también
+es la forma de recuperar la administración: si el dueño pierde el acceso a su
+cuenta (por ejemplo, era de Google), crea una cuenta nueva y vuelve a poner el
+código. Guardalo bien. Para cambiarlo, reemplazá esa huella por la de uno nuevo
+(`printf 'CODIGONUEVO' | sha256sum`, en mayúsculas y sin guiones).
 
 Las versiones anteriores pedían foto del DNI para verificar perfiles. Eso ya no
 existe: al actualizar, el sitio borra solo las fotos de DNI que hubieran quedado

@@ -15,15 +15,23 @@ $base = "http://127.0.0.1:$port";
 $env = [...getenv(), 'ASIENTO_DATA_DIR' => $data, 'ASIENTO_ADMIN_CODE_SHA256' => hash('sha256', 'TESTCODE1234')];
 
 // Base con el formato anterior, como la que ya puede haber en el hosting: cuentas sin las columnas
-// nuevas, calificaciones sin rol y restos de la verificación con DNI que se quitó.
+// nuevas, calificaciones sin rol, restos de la verificación con DNI que se quitó y cuentas de cuando
+// se entraba con Google.
 mkdir("$data/sesiones", 0700, true);
 mkdir("$data/verificaciones", 0700);
 file_put_contents("$data/verificaciones/" . str_repeat('ab', 16) . '.jpg', 'foto vieja de un DNI');
 $legacy = new PDO("sqlite:$data/viajes.sqlite");
-$legacy->exec('CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password TEXT NOT NULL, created INTEGER NOT NULL)');
-$addOld = $legacy->prepare('INSERT INTO users VALUES (?,?,?,?,?)');
+$legacy->exec("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password TEXT NOT NULL, created INTEGER NOT NULL,
+    google_sub TEXT NOT NULL DEFAULT '')");
+$legacy->exec("CREATE UNIQUE INDEX idx_users_google ON users(google_sub) WHERE google_sub != ''");
+$addOld = $legacy->prepare('INSERT INTO users(id,email,name,password,created) VALUES (?,?,?,?,?)');
 foreach ([['cuenta-vieja', 'vieja@example.com', 'Cuenta vieja'], ['cuenta-gmail', 'lore.viejo@gmail.com', 'Lore viejo']] as [$id, $email, $name]) {
     $addOld->execute([$id, $email, $name, password_hash('una-clave-de-prueba', PASSWORD_DEFAULT), time()]);
+}
+// Las cuentas de Google guardaban una contraseña al azar que nadie conoce.
+$addGoogle = $legacy->prepare('INSERT INTO users(id,email,name,password,created,google_sub) VALUES (?,?,?,?,?,?)');
+foreach ([['cuenta-google', 'marta.g@gmail.com', 'Marta G', '1111'], ['cuenta-google2', 'pepe.g@gmail.com', 'Pepe G', '2222']] as [$id, $email, $name, $sub]) {
+    $addGoogle->execute([$id, $email, $name, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), time(), $sub]);
 }
 // Calificaciones de la versión anterior, que no decían cómo viajaron (a Lore, que publicó un viaje, y a la cuenta vieja).
 $legacy->exec("CREATE TABLE trips (id TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES users(id), origin TEXT NOT NULL, destination TEXT NOT NULL,
@@ -37,10 +45,13 @@ $legacy->exec("INSERT INTO ratings VALUES ('r1', 'cuenta-vieja', 'cuenta-gmail',
 $legacy->exec("CREATE TABLE verifications (id TEXT PRIMARY KEY, user TEXT, status TEXT, reason TEXT, files TEXT, created INTEGER, decided INTEGER)");
 $legacy->exec("INSERT INTO verifications VALUES ('v1', 'cuenta-vieja', 'pending', '', '[\"ab.jpg\"]', 1, 0)");
 $legacy = null;
-// Una sesión que quedó abierta en la versión anterior.
+// Sesiones que quedaron abiertas en la versión anterior.
 $oldSession = bin2hex(random_bytes(16));
 $oldCsrf = bin2hex(random_bytes(32));
 file_put_contents("$data/sesiones/sess_$oldSession", 'uid|s:12:"cuenta-gmail";csrf|s:64:"' . $oldCsrf . '";');
+$googleSession = bin2hex(random_bytes(16));
+$googleCsrf = bin2hex(random_bytes(32));
+file_put_contents("$data/sesiones/sess_$googleSession", 'uid|s:13:"cuenta-google";csrf|s:64:"' . $googleCsrf . '";');
 
 $server = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", '-t', $root], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, $env);
 register_shutdown_function(function () use ($server, $data) {
@@ -69,7 +80,10 @@ final class Client
 
     public function post(string $action, array $body, ?string $csrf = null): array
     {
-        return $this->request("api.php?a=$action", json_encode($body), $csrf ?? $this->csrf);
+        $r = $this->request("api.php?a=$action", json_encode($body), $csrf ?? $this->csrf);
+        // Entrar, salir y cambiar la contraseña renuevan el token.
+        $this->csrf = is_string($r[1]['csrf'] ?? null) ? $r[1]['csrf'] : $this->csrf;
+        return $r;
     }
 
     // Usa una sesión ya guardada en el servidor (por ejemplo, una de la versión anterior).
@@ -126,16 +140,12 @@ final class Client
 
     public function register(string $login, string $name = 'Juan'): array
     {
-        $r = $this->post('register', ['login' => $login, 'password' => 'una-clave-de-prueba', 'name' => $name]);
-        $this->csrf = $r[1]['csrf'] ?? $this->csrf;
-        return $r;
+        return $this->post('register', ['login' => $login, 'password' => 'una-clave-de-prueba', 'name' => $name]);
     }
 
     public function login(string $login, string $password = 'una-clave-de-prueba'): array
     {
-        $r = $this->post('login', ['login' => $login, 'password' => $password]);
-        $this->csrf = $r[1]['csrf'] ?? $this->csrf;
-        return $r;
+        return $this->post('login', ['login' => $login, 'password' => $password]);
     }
 }
 
@@ -164,13 +174,14 @@ echo "Asiento Vacío: pruebas\n";
 $anon = new Client($base);
 [$code, $body] = $anon->get('session');
 check('la sesión entrega token y fecha', $code === 200 && strlen($body['csrf']) === 64 && $body['today'] === date('Y-m-d') && $body['user'] === null
-    && !array_key_exists('googleClientId', $body), $body);
+    && !array_key_exists('googleClientId', $body) && $body['contact'] === '', $body);
 [$code, $body] = $anon->post('register', [], 'malo');
 check('sin token CSRF se rechaza', $code === 403 && $body['csrf'] === true, $body);
 check('publicar sin cuenta pide iniciar sesión', $anon->post('trip_create', $trip)[0] === 401);
 check('mis viajes sin cuenta pide iniciar sesión', $anon->get('trips', '&mine=1')[0] === 401);
 check('el ingreso con Google ya no existe', $anon->post('google', ['credential' => 'x'])[0] === 404 && $anon->post('setup', [])[0] === 404
     && $anon->get('admin_settings')[0] === 401 && $anon->post('photo_google', [])[0] === 404);
+check('la sesión no dice "sin contraseña" a quien no entró', !isset($anon->get('session')[1]['user']['noPassword']));
 
 echo "Cuentas con correo o con celular\n";
 $old = new Client($base);
@@ -190,13 +201,28 @@ check('no se repite el correo', (new Client($base))->register('juan@example.com'
 $cel = new Client($base);
 [$code, $body] = $cel->register('11 2345 6789', 'Celeste');
 check('registro con número de celular', $code === 200 && $body['user']['email'] === '+5491123456789' && $body['new'] === true, $body);
-foreach (['+54 9 11 2345 6789', '011 2345 6789', '54 11 2345-6789', '011 15 2345 6789', '(011) 15-2345-6789'] as $written) {
+check('una cuenta nueva tiene contraseña', $body['user']['noPassword'] === false, $body);
+foreach (['+54 9 11 2345 6789', '011 2345 6789', '54 11 2345-6789', '011 15 2345 6789', '(011) 15-2345-6789', '11 15 2345 6789',
+    '+54 11 15 2345 6789', '0054 9 11 2345 6789', '9 11 2345 6789'] as $written) {
     check("entra con el celular escrito como \"$written\"", (new Client($base))->login($written)[0] === 200);
 }
+// En el interior la característica es de 3 o 4 cifras y el 15 va entre la característica y el número.
+[$code, $body] = (new Client($base))->register('0351 15 555 1234', 'Cordobesa');
+check('celular del interior con 0 y 15', $code === 200 && $body['user']['email'] === '+5493515551234', $body);
+foreach (['351 555 1234', '+54 9 351 555-1234', '(0351) 15-555-1234', '+54 351 15 555 1234'] as $written) {
+    check("entra con el celular escrito como \"$written\"", (new Client($base))->login($written)[0] === 200);
+}
+check('característica de 4 cifras con 15', (new Client($base))->register('03541 15 123456', 'Carlos Paz')[1]['user']['email'] === '+5493541123456');
+check('con + es el código de otro país, no una característica',
+    (new Client($base))->register('+354 611 2345', 'Islandesa')[1]['user']['email'] === '+3546112345'
+    && (new Client($base))->register('3546 11 2345', 'Calamuchita')[1]['user']['email'] === '+5493546112345');
 [$code, $body] = (new Client($base))->register('+54 9 11 2345 6789', 'Otra');
 check('no se repite el celular aunque se escriba distinto', $code === 409 && str_contains($body['error'], 'celular'), $body);
 check('acepta celulares de otros países', (new Client($base))->register('+595 981 123 456', 'Paraguaya')[1]['user']['email'] === '+595981123456');
-foreach ([['1234', 'muy corto'], ['juan@', 'correo incompleto'], ['cualquier cosa', 'texto'], ['', 'vacío']] as [$written, $label]) {
+$resetLimits();
+foreach ([['1234', 'muy corto'], ['juan@', 'correo incompleto'], ['cualquier cosa', 'texto'], ['', 'vacío'],
+    ['15 2345 6789', 'sin característica'], ['2345 6789', 'sin característica ni 15'], ['+54 9 11 2345 678', 'al que le falta un número'],
+    ['0351 99 555 1234', 'con algo que no es 15']] as [$written, $label]) {
     [$code, $body] = (new Client($base))->register($written, 'Alguien');
     check("rechaza un correo o celular $label", $code === 400 && str_contains($body['error'], 'celular'), $body);
 }
@@ -207,8 +233,29 @@ check('contraseña incorrecta con correo', $code === 401 && $body['error'] === '
 [$code, $body] = (new Client($base))->login('11 2345 6789', 'otra-clave-mala');
 check('contraseña incorrecta con celular', $code === 401 && $body['error'] === 'Celular o contraseña incorrectos.', $body);
 check('el correo no distingue mayúsculas', (new Client($base))->login('JUAN@Example.com')[0] === 200);
+[$code, $body] = (new Client($base))->register('+juan@example.com', 'Más');
+check('un correo que empieza con + sigue siendo correo', $code === 200 && $body['user']['email'] === '+juan@example.com'
+    && (new Client($base))->login('+juan@example.com', 'otra-clave-mala')[1]['error'] === 'Correo o contraseña incorrectos.', $body);
+
+echo "Cuentas de cuando se entraba con Google\n";
+$resetLimits();
+[$code, $body] = (new Client($base))->login('marta.g@gmail.com', 'cualquier-clave');
+check('al entrar, una cuenta de Google avisa que pida una contraseña nueva', $code === 401
+    && $body['error'] === 'Esta cuenta se creó con Google, que ya no se usa. Pedile a la administración una contraseña nueva.', $body);
+$marta = new Client($base);
+$marta->useSession($googleSession, $googleCsrf);
+check('si tenía la sesión abierta, la página sabe que no tiene contraseña', $marta->get('session')[1]['user']['noPassword'] === true);
+[$code, $body] = $marta->post('password_change', ['password' => 'mi-clave-nueva']);
+check('y elige una sin escribir la actual', $code === 200 && $body['user']['noPassword'] === false && strlen($body['csrf']) === 64, $body);
+check('sigue adentro', $marta->get('session')[1]['user']['id'] === 'cuenta-google');
+$copy = new Client($base);
+$copy->useSession($googleSession, $googleCsrf);
+check('una copia de la sesión de antes deja de servir', $copy->get('session')[1]['user'] === null);
+check('después entra con su correo y esa contraseña', (new Client($base))->login('marta.g@gmail.com', 'mi-clave-nueva')[0] === 200);
+check('para cambiarla otra vez ya pide la actual', $marta->post('password_change', ['password' => 'otra-clave-mas'])[0] === 403);
 
 echo "Viajes\n";
+$resetLimits();
 [$code, $body] = $driver->post('trip_create', $trip);
 check('publica un viaje', $code === 201 && isset($body['id']), $body);
 $tripId = $body['id'];
@@ -273,9 +320,25 @@ check('sin activar, un usuario no es administrador', $admin->get('admin_overview
 check('código incorrecto', $admin->post('admin_claim', ['code' => 'AAAA-BBBB-CCCC-DDDD'])[0] === 403);
 [$code, $body] = $admin->post('admin_claim', ['code' => 'test-code-1234']);
 check('el código activa la administración', $code === 200 && $body['user']['admin'] === true, $body);
-check('el código no sirve una segunda vez', $other->post('admin_claim', ['code' => 'TESTCODE1234'])[0] === 409);
+// Si el dueño pierde el acceso a su cuenta de administración, crea otra y vuelve a poner el código.
+$spare = new Client($base);
+$spare->register('repuesto@example.com', 'Repuesto');
+[$code, $body] = $spare->post('admin_claim', ['code' => 'TESTCODE1234']);
+check('el código sirve de nuevo para recuperar la administración', $code === 200 && $body['user']['admin'] === true, $body);
+check('y la otra administración se la puede quitar', $admin->post('admin_user', ['id' => $body['user']['id'], 'action' => 'remove_admin'])[0] === 200
+    && $spare->get('admin_overview')[0] === 403);
 check('los usuarios comunes no ven administración', $other->get('admin_trips')[0] === 403);
-check('Ajustes ya no existe', $admin->get('admin_settings')[0] === 404 && $admin->post('admin_settings', ['googleClientId' => ''])[0] === 404);
+check('solo administración pone su WhatsApp de contacto', $other->post('admin_contact', ['phone' => '11 5555 4444'])[0] === 403);
+check('el WhatsApp de contacto tiene que ser un celular', $admin->post('admin_contact', ['phone' => 'duena@example.com'])[0] === 400
+    && $admin->post('admin_contact', ['phone' => '15 5555 4444'])[0] === 400);
+[$code, $body] = $admin->post('admin_contact', ['phone' => '011 15 5555-4444']);
+check('la administración pone su WhatsApp y todos lo ven en Entrar', $code === 200 && $body['contact'] === '+5491155554444'
+    && $anon->get('session')[1]['contact'] === '+5491155554444', $body);
+check('y lo puede sacar', $admin->post('admin_contact', ['phone' => ''])[1]['contact'] === '' && $anon->get('session')[1]['contact'] === '');
+$admin->post('admin_contact', ['phone' => '11 5555 4444']);
+[$code, $body] = $admin->get('admin_settings');
+check('Ajustes ya no existe (la página vieja guardada en el navegador recibe Google sin configurar)', $code === 200 && $body === ['googleClientId' => '']
+    && $admin->post('admin_settings', ['googleClientId' => 'x'])[0] === 404, $body);
 
 check('denuncia sin motivo', $anon->post('report', ['trip' => $tripId, 'reason' => 'porque sí'])[0] === 400);
 check('denuncia de un viaje que no existe', $anon->post('report', ['trip' => 'nada', 'reason' => 'precio'])[0] === 404);
@@ -283,7 +346,7 @@ check('cualquiera puede denunciar sin cuenta', $anon->post('report', ['trip' => 
 $report = $admin->get('admin_reports')[1]['items'][0] ?? [];
 check('la denuncia llega a administración', ($report['trip'] ?? '') === $tripId && $report['details'] === 'Me pidió plata' && $report['owner_email'] === 'juan@example.com', $report);
 $overview = $admin->get('admin_overview')[1];
-check('el resumen cuenta denuncias y usuarios', $overview['reports'] === 1 && $overview['drivers'] === 8 && $overview['upcoming'] >= 1, $overview);
+check('el resumen cuenta denuncias y usuarios', $overview['reports'] === 1 && $overview['drivers'] === 16 && $overview['upcoming'] >= 1, $overview);
 check('descartar una denuncia', $admin->post('admin_report', ['id' => $report['id'], 'action' => 'dismiss'])[0] === 200 && $admin->get('admin_reports')[1]['items'] === []);
 $anon->post('report', ['trip' => $tripId, 'reason' => 'datos']);
 $row = $find($admin->get('admin_trips')[1]['items'], 'id', $tripId);
@@ -295,6 +358,8 @@ $me = $find($users, 'email', 'duena@example.com');
 $ana = $find($users, 'email', 'otra@example.com');
 $celeste = $find($users, 'email', '+5491123456789');
 check('la lista de usuarios muestra con qué correo o celular entra cada uno', $celeste['name'] === 'Celeste' && !array_key_exists('google', $celeste), $celeste);
+check('la lista marca las cuentas de Google que todavía no tienen contraseña', $find($users, 'id', 'cuenta-google2')['no_password'] === 1
+    && $find($users, 'id', 'cuenta-google')['no_password'] === 0 && $celeste['no_password'] === 0);
 check('la lista de usuarios cuenta sus viajes', $juan['trips'] === 2 && $me['is_admin'] === 1, [$juan, $me]);
 check('suspender pide plazo y motivo', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block'])[0] === 400
     && $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'block', 'days' => 3, 'reason' => 'precio'])[0] === 400
@@ -326,6 +391,8 @@ check('la lista distingue conductores de acompañantes', $flotaRow['trips_total'
 check('no podés quitarte la administración', $admin->post('admin_user', ['id' => $me['id'], 'action' => 'remove_admin'])[0] === 400);
 check('nombrar otro administrador', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'make_admin'])[0] === 200 && $other->get('session')[1]['user']['admin'] === true);
 check('no se suspende a un administrador', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'block', 'days' => 7, 'reason' => 'otro'])[0] === 400);
+[$code, $body] = $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'reset_password']);
+check('a otro administrador no se le da una contraseña nueva', $code === 400 && $body['error'] === 'Primero quitale la administración.', $body);
 check('quitar la administración a otro', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'remove_admin'])[0] === 200 && $other->get('session')[1]['user']['admin'] === false);
 check('acción de usuario inventada', $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'borrar'])[0] === 400
     && $admin->post('admin_user', ['id' => $ana['id'], 'action' => 'allow_google'])[0] === 400);
@@ -363,11 +430,22 @@ check('si alguien se olvidó la contraseña, administración le da una nueva', $
 check('con la nueva entra y la anterior deja de servir', (new Client($base))->login('+54 9 11 2345 6789', $temporary)[0] === 200
     && (new Client($base))->login('11 2345 6789', 'otra-clave-nueva')[0] === 401);
 check('y se cierran las sesiones que tenía abiertas', $cel->get('session')[1]['user'] === null);
+[$code, $body] = $admin->post('admin_user', ['id' => 'cuenta-google2', 'action' => 'reset_password']);
+check('una cuenta de Google entra con la contraseña que le da la administración', $code === 200
+    && (new Client($base))->login('pepe.g@gmail.com', $body['password'])[0] === 200
+    && $find($admin->get('admin_users')[1]['items'], 'id', 'cuenta-google2')['no_password'] === 0, $body);
 $cel->login('11 2345 6789', $temporary);
 $cel->post('password_change', ['current' => $temporary, 'password' => 'una-clave-de-prueba']);
 $resetLimits();
 $codes = array_map(fn() => (new Client($base))->login('juan@example.com', 'otra-clave-mala')[0], range(1, 26));
 check('limita los intentos de contraseña seguidos', end($codes) === 429, $codes);
+$resetLimits();
+$codes = array_map(fn() => (new Client($base))->login('+54 9 11 2345 6789', 'otra-clave-mala')[0], range(1, 10));
+$db->exec("DELETE FROM limits WHERE key LIKE 'auth:%'");  // como si probara desde otra conexión
+[$code, $body] = (new Client($base))->login('11 2345 6789');
+check('limita los intentos contra una misma cuenta aunque cambie la conexión', $codes === array_fill(0, 10, 401) && $code === 429
+    && $body['error'] === 'Demasiados intentos con esta cuenta. Esperá 15 minutos.', [$codes, $body]);
+check('las otras cuentas siguen entrando', (new Client($base))->login('juan@example.com')[0] === 200);
 $resetLimits();
 
 echo "Restos de la verificación con DNI\n";
@@ -473,6 +551,13 @@ $headersOf = function (string $path) use ($base): string {
 check('subir foto pide cuenta', $anon->upload('photo_upload', [], ['photo' => $png])[0] === 401);
 check('rechaza archivos que no son fotos', $gabi->upload('photo_upload', [], ['photo' => $notPhoto])[0] === 400);
 check('rechaza el pedido sin foto', $gabi->upload('photo_upload', [], [])[0] === 400);
+// Un archivo liviano pero de muchísimos píxeles ocuparía cientos de MB de memoria al abrirlo.
+$huge = tempnam(sys_get_temp_dir(), 'enorme') . '.png';
+$hugeImage = imagecreate(4200, 4200);
+imagecolorallocate($hugeImage, 30, 90, 200);
+imagepng($hugeImage, $huge, 9);
+check('rechaza fotos de demasiados píxeles', getimagesize($huge)[0] === 4200 && filesize($huge) < 200_000
+    && $gabi->upload('photo_upload', [], ['photo' => $huge])[0] === 400, filesize($huge));
 [$code, $body] = $gabi->upload('photo_upload', [], ['photo' => $png]);
 $gabiPhoto = $body['user']['photo'] ?? '';
 check('subir una foto', $code === 200 && preg_match('#^api\.php\?a=photo&f=[a-f0-9]{32}\.jpg$#', $gabiPhoto) === 1, $body);
@@ -506,18 +591,34 @@ check('administración ve la foto de cada usuario', $find($admin->get('admin_use
 check('administración quita una foto', $admin->post('admin_user', ['id' => $juan['id'], 'action' => 'remove_photo'])[0] === 200
     && $driver->get('session')[1]['user']['photo'] === null && $anon->bytes($juanPhoto)[0] === 404 && count($storedPhotos()) === 1);
 check('quitar la propia foto', $gabi->post('photo_delete', [])[0] === 200 && $gabi->get('session')[1]['user']['photo'] === null && $storedPhotos() === []);
+if (function_exists('exif_read_data')) {
+    // Foto acostada (rojo a la izquierda, azul a la derecha) con la marca EXIF "girar 90°" que ponen los
+    // teléfonos: se tiene que ver parada, con el rojo arriba.
+    $turned = imagecreatetruecolor(600, 300);
+    imagefilledrectangle($turned, 0, 0, 299, 299, imagecolorallocate($turned, 220, 0, 0));
+    imagefilledrectangle($turned, 300, 0, 599, 299, imagecolorallocate($turned, 0, 0, 220));
+    ob_start();
+    imagejpeg($turned, null, 95);
+    $tiff = "II*\0" . pack('V', 8) . pack('v', 1) . pack('vvVvv', 0x0112, 3, 1, 6, 0) . pack('V', 0);
+    $turnedFile = tempnam(sys_get_temp_dir(), 'girada') . '.jpg';
+    file_put_contents($turnedFile, "\xFF\xD8\xFF\xE1" . pack('n', strlen($tiff) + 8) . "Exif\0\0" . $tiff . substr((string)ob_get_clean(), 2));
+    [, $body] = $gabi->upload('photo_upload', [], ['photo' => $turnedFile]);
+    $shown = imagecreatefromstring((string)$anon->bytes($body['user']['photo'])[1]);
+    $red = fn(int $x, int $y) => (imagecolorat($shown, $x, $y) >> 16 & 0xFF) > 150 && (imagecolorat($shown, $x, $y) & 0xFF) < 100;
+    check('endereza las fotos que el teléfono guardó giradas', $red(160, 40) && !$red(160, 280));
+    $gabi->post('photo_delete', []);
+}
 
 $resetLimits();
 [$code, $body] = $driver->post('logout', []);
-$driver->csrf = $body['csrf'];
-check('cerrar sesión', $code === 200 && $driver->get('session')[1]['user'] === null);
+check('cerrar sesión', $code === 200 && $driver->csrf === $body['csrf'] && $driver->get('session')[1]['user'] === null);
 check('limita denuncias seguidas', count(array_filter(array_map(fn() => $anon->post('report', ['trip' => 'x', 'reason' => 'otro'])[0], range(1, 12)), fn($c) => $c === 429)) >= 1);
 [$code, $body] = $driver->login('JUAN@example.com');
 check('entrar de nuevo', $code === 200 && $body['user']['email'] === 'juan@example.com', $body);
 check('estado del servidor', $anon->get('health')[1]['ok'] === true);
 check('acción desconocida', $anon->get('nada')[0] === 404);
 [$code, $html] = $anon->raw('');
-check('la página principal carga', $code === 200 && str_contains($html, 'Asiento Vacío') && !str_contains($html, 'google'));
+check('la página principal carga, sin nada de Google', $code === 200 && str_contains($html, 'Asiento Vacío') && !str_contains($html, 'accounts.google'));
 preg_match_all('/(?:src|href)="([^"#]+)"/', $html, $assets);
 foreach (array_unique($assets[1]) as $asset) {
     check("existe $asset", $anon->raw(strtok($asset, '?'))[0] === 200);

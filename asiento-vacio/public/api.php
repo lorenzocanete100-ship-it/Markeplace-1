@@ -24,6 +24,7 @@ const MAX_DAYS_AHEAD = 180;
 const SESSION_DAYS = 7;
 const MAX_COMMENT = 300;
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+const MAX_PHOTO_PIXELS = 4096 * 4096;  // abierta, cada foto ocupa en memoria unos 4 bytes por píxel
 const PHOTO_SIZE = 320;
 const REPORT_REASONS = ['precio', 'datos', 'ofensivo', 'otro'];
 const SUSPEND_DAYS = [1, 7, 30, 0];  // 0: sin fecha, hasta que la administración la levante
@@ -197,6 +198,7 @@ function start_session(string $dir): void
     }
 }
 
+// Cuenta un intento y dice si todavía está dentro del límite.
 function limit(PDO $db, string $key, int $maximum, int $window): bool
 {
     $now = time();
@@ -208,6 +210,17 @@ function limit(PDO $db, string $key, int $maximum, int $window): bool
     $hits = (int)$stmt->fetchColumn();
     $db->commit();
     return $hits <= $maximum;
+}
+
+// Dice si ya se llegó al límite, sin contar un intento.
+function limited(PDO $db, string $key, int $maximum): bool
+{
+    return (int)query($db, 'SELECT hits FROM limits WHERE key=? AND expires>=?', [$key, time()])->fetchColumn() >= $maximum;
+}
+
+function setting(PDO $db, string $key): string
+{
+    return (string)query($db, 'SELECT value FROM settings WHERE key=?', [$key])->fetchColumn();
 }
 
 function today(): string
@@ -236,9 +249,27 @@ function rating_pair(array $row, string $as): array
     return ['rating' => $row["{$as}_rating"] === null ? null : (float)$row["{$as}_rating"], 'count' => (int)$row["{$as}_ratings"]];
 }
 
+// Las versiones anteriores tenían ingreso con Google. Esas cuentas (google_sub != '') guardaban una
+// contraseña al azar que nadie conoce: hasta que elijan una, entran con una sesión que ya tenían
+// abierta (eligen la contraseña sin escribir la actual) o con una nueva que les da la administración.
+function no_password_sql(PDO $db): string
+{
+    static $sql = null;
+    return $sql ??= in_array('google_sub', array_column($db->query('PRAGMA table_info(users)')->fetchAll(), 'name'), true)
+        ? "(google_sub != '')" : '0';
+}
+
+// Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta.
+function set_password(PDO $db, string $id, string $password): void
+{
+    query($db, 'UPDATE users SET password=?, auth_epoch=auth_epoch+1' . (no_password_sql($db) === '0' ? '' : ", google_sub=''")
+        . ' WHERE id=?', [password_hash($password, PASSWORD_DEFAULT), $id]);
+}
+
 function load_user(PDO $db, string $id): ?array
 {
-    return query($db, 'SELECT id,email,name,is_admin,blocked,photo,created,auth_epoch FROM users WHERE id=?', [$id])->fetch() ?: null;
+    return query($db, 'SELECT id,email,name,is_admin,blocked,photo,created,auth_epoch,' . no_password_sql($db) . ' AS no_password
+        FROM users WHERE id=?', [$id])->fetch() ?: null;
 }
 
 function public_user(?array $user): ?array
@@ -246,6 +277,7 @@ function public_user(?array $user): ?array
     return $user ? [
         'id' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'created' => (int)$user['created'],
         'admin' => (int)$user['is_admin'] === 1, 'photo' => photo_url($user['photo']),
+        'noPassword' => (int)$user['no_password'] === 1,
     ] : null;
 }
 
@@ -260,13 +292,22 @@ function photo_url(?string $file): ?string
 function save_photo(string $bytes, string $folder): ?string
 {
     $info = @getimagesizefromstring($bytes);
-    if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true) || $info[0] * $info[1] > 30_000_000) {
+    if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true) || $info[0] * $info[1] > MAX_PHOTO_PIXELS) {
         return null;
     }
     $image = @imagecreatefromstring($bytes);
     if (!$image) {
         return null;
     }
+    $width = imagesx($image);
+    $height = imagesy($image);
+    $side = min($width, $height);
+    $square = imagecreatetruecolor(PHOTO_SIZE, PHOTO_SIZE);
+    imagefill($square, 0, 0, imagecolorallocate($square, 255, 255, 255));  // fondo blanco para PNG transparentes
+    imagecopyresampled($square, $image, 0, 0, intdiv($width - $side, 2), intdiv($height - $side, 2), PHOTO_SIZE, PHOTO_SIZE, $side, $side);
+    $image = null;
+    // Se endereza la foto ya recortada y achicada (el cuadrado del centro es el mismo): girar la
+    // original ocuparía el doble de memoria.
     if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
         $stream = fopen('php://memory', 'r+');
         fwrite($stream, $bytes);
@@ -275,15 +316,9 @@ function save_photo(string $bytes, string $folder): ?string
         fclose($stream);
         $turn = [3 => 180, 6 => -90, 8 => 90][(int)($exif['Orientation'] ?? 1)] ?? 0;
         if ($turn) {
-            $image = imagerotate($image, $turn, 0);
+            $square = imagerotate($square, $turn, 0);
         }
     }
-    $width = imagesx($image);
-    $height = imagesy($image);
-    $side = min($width, $height);
-    $square = imagecreatetruecolor(PHOTO_SIZE, PHOTO_SIZE);
-    imagefill($square, 0, 0, imagecolorallocate($square, 255, 255, 255));  // fondo blanco para PNG transparentes
-    imagecopyresampled($square, $image, 0, 0, intdiv($width - $side, 2), intdiv($height - $side, 2), PHOTO_SIZE, PHOTO_SIZE, $side, $side);
     if (!is_dir($folder) && !@mkdir($folder, 0700, true)) {
         return null;
     }
@@ -299,9 +334,10 @@ function replace_photo(PDO $db, string $folder, array $user, string $file): void
     }
 }
 
-// Las cuentas se identifican con un correo o con un número de celular. Los celulares se guardan con el
-// código de país (+54 9 para Argentina), así se pueden escribir de distintas formas: "11 2345 6789",
-// "011 2345 6789" o "+54 9 11 2345 6789" son la misma cuenta. Devuelve null si no es ninguna de las dos.
+// Las cuentas se identifican con un correo o con un número de celular. Los celulares argentinos se
+// guardan como +54 9, la característica y el número (sin 0 ni 15), así se pueden escribir de distintas
+// formas: "11 2345 6789", "011 15 2345 6789", "0351 15 555 1234" o "+54 9 11 2345 6789". Un celular de
+// otro país se escribe con + y su código. Devuelve null si no es un correo ni un celular válido.
 function login_id(mixed $value): ?string
 {
     $value = strtolower(clean($value));
@@ -312,24 +348,31 @@ function login_id(mixed $value): ?string
         return null;
     }
     $digits = preg_replace('/\D/', '', $value);
-    if (strlen($digits) < 10) {
-        return null;
+    $international = str_starts_with($value, '+') || str_starts_with($digits, '00');
+    $digits = $international ? ltrim($digits, '0') : $digits;
+    if (str_starts_with($digits, '54') && ($international || strlen($digits) >= 12)) {
+        $digits = substr($digits, 2);
+    } elseif ($international) {
+        return strlen($digits) >= 10 && strlen($digits) <= 15 ? '+' . $digits : null;  // otro país
     }
-    if (str_starts_with($digits, '00')) {
-        $digits = substr($digits, 2);  // 00 54 9 …
+    // Queda el número argentino: puede tener el 9 de los celulares (después del 54), el 0 de larga
+    // distancia y el 15 entre la característica (de 2 a 4 cifras) y el número.
+    if (str_starts_with($digits, '9')) {
+        $digits = substr($digits, 1);
     }
-    if ((strlen($digits) === 11 || strlen($digits) === 13) && $digits[0] === '0') {
-        $digits = substr($digits, 1);  // 011 2345 6789 o 011 15 2345 6789
+    if (str_starts_with($digits, '0')) {
+        $digits = substr($digits, 1);
     }
-    if (strlen($digits) === 12 && str_starts_with($digits, '1115')) {
-        $digits = '11' . substr($digits, 4);  // 11 15 2345 6789 (el 15 de los celulares de Buenos Aires)
+    if (strlen($digits) === 12) {
+        // Las características son 11 (Buenos Aires) o de 3 o 4 cifras que empiezan con 2 o 3.
+        foreach (str_starts_with($digits, '11') ? [2] : [3, 4] as $at) {
+            if (substr($digits, $at, 2) === '15') {
+                $digits = substr($digits, 0, $at) . substr($digits, $at + 2);
+                break;
+            }
+        }
     }
-    if (strlen($digits) === 10 && $digits[0] !== '0') {
-        $digits = '549' . $digits;  // 11 2345 6789
-    } elseif (strlen($digits) === 12 && str_starts_with($digits, '54') && $digits[2] !== '9') {
-        $digits = '549' . substr($digits, 2);  // 54 11 2345 6789
-    }
-    return $digits[0] !== '0' && strlen($digits) >= 11 && strlen($digits) <= 15 ? '+' . $digits : null;
+    return preg_match('/^(11|[23])\d+$/', $digits) && strlen($digits) === 10 ? '+549' . $digits : null;
 }
 
 function new_password(): string
@@ -389,6 +432,11 @@ try {
     $method = $_SERVER['REQUEST_METHOD'];
     $action = $_GET['a'] ?? '';
     $ip = $_SERVER['REMOTE_ADDR'] ?? '?';
+    $packed = @inet_pton($ip);
+    if ($packed !== false && strlen($packed) === 16) {
+        // Con IPv6 cada conexión puede cambiar de dirección dentro de su bloque /64: los límites cuentan el bloque.
+        $ip = bin2hex(substr($packed, 0, 8)) . '/64';
+    }
 
     $input = [];
     if ($method === 'POST') {
@@ -409,7 +457,7 @@ try {
 
     $user = empty($_SESSION['uid']) ? null : load_user($db, $_SESSION['uid']);
     if ($user && ((int)$user['blocked'] === 1 || (int)$user['auth_epoch'] !== (int)($_SESSION['epoch'] ?? 0))) {
-        // Una cuenta suspendida, o unida a Google después de abrir esta sesión, pierde la sesión en el siguiente pedido.
+        // Una cuenta suspendida, o cuya contraseña cambió después de abrir esta sesión, pierde la sesión en el siguiente pedido.
         unset($_SESSION['uid']);
         $user = null;
     }
@@ -452,7 +500,8 @@ try {
             respond(['ok' => true]);
 
         case 'GET session':
-            respond(['csrf' => $_SESSION['csrf'], 'today' => today(), 'user' => public_user($user)]);
+            // contact: el WhatsApp de la administración, para quien se olvida la contraseña.
+            respond(['csrf' => $_SESSION['csrf'], 'today' => today(), 'user' => public_user($user), 'contact' => setting($db, 'contact')]);
 
         case 'POST logout':
             $_SESSION = [];
@@ -474,7 +523,7 @@ try {
             if (!length_between($password, 10, 128)) {
                 fail('Usá una contraseña de 10 a 128 caracteres.');
             }
-            $phone = str_starts_with($login, '+');
+            $phone = !str_contains($login, '@');
             if ($action === 'register') {
                 $name = clean($input['name'] ?? '');
                 if (!length_between($name, 2, 80)) {
@@ -489,8 +538,18 @@ try {
                 }
                 sign_in($db, $uid, true);
             }
-            $row = query($db, 'SELECT id,password,blocked,blocked_until,blocked_reason FROM users WHERE email=?', [$login])->fetch();
+            // Además del límite por conexión, uno por cuenta: el celular de quien publica se ve en sus viajes.
+            $failures = 'auth-fail:' . $login;
+            if (limited($db, $failures, 10)) {
+                fail('Demasiados intentos con esta cuenta. Esperá 15 minutos.', 429);
+            }
+            $row = query($db, 'SELECT id,password,blocked,blocked_until,blocked_reason,' . no_password_sql($db) . ' AS no_password
+                FROM users WHERE email=?', [$login])->fetch();
+            if ($row && (int)$row['no_password'] === 1) {
+                fail('Esta cuenta se creó con Google, que ya no se usa. Pedile a la administración una contraseña nueva.', 401);
+            }
             if (!$row || !password_verify($password, $row['password'])) {
+                limit($db, $failures, 10, 900);
                 fail(($phone ? 'Celular' : 'Correo') . ' o contraseña incorrectos.', 401);
             }
             if ((int)$row['blocked'] === 1) {
@@ -675,7 +734,7 @@ try {
 
         case 'POST photo_upload':
             $me = $requireUser();
-            if (!limit($db, 'photo:' . $me['id'], 10, 86400)) {
+            if (!limit($db, 'photo:' . $me['id'], 10, 86400) || !limit($db, 'photo-ip:' . $ip, 30, 86400)) {
                 fail('Cambiaste la foto muchas veces hoy. Probá mañana.', 429);
             }
             $upload = $_FILES['photo'] ?? null;
@@ -699,17 +758,22 @@ try {
                 fail('Demasiados intentos. Esperá una hora.', 429);
             }
             $current = query($db, 'SELECT password FROM users WHERE id=?', [$me['id']])->fetchColumn();
-            if (!is_string($input['current'] ?? null) || !password_verify($input['current'], (string)$current)) {
+            // Las cuentas que eran de Google nunca tuvieron contraseña: eligen una sin escribir la actual.
+            if ((int)$me['no_password'] !== 1
+                && (!is_string($input['current'] ?? null) || !password_verify($input['current'], (string)$current))) {
                 fail('La contraseña actual no es correcta.', 403);
             }
             $password = is_string($input['password'] ?? null) ? $input['password'] : '';
             if (!length_between($password, 10, 128)) {
                 fail('Usá una contraseña nueva de 10 a 128 caracteres.');
             }
-            // Se cierran las otras sesiones abiertas (por ejemplo, en un teléfono perdido); esta sigue.
-            query($db, 'UPDATE users SET password=?, auth_epoch=auth_epoch+1 WHERE id=?', [password_hash($password, PASSWORD_DEFAULT), $me['id']]);
+            // Se cierran las otras sesiones abiertas (por ejemplo, en un teléfono perdido o con la cookie
+            // copiada): esta sigue, con otro identificador.
+            set_password($db, $me['id'], $password);
+            session_regenerate_id(true);
             $_SESSION['epoch'] = (int)$me['auth_epoch'] + 1;
-            respond(['ok' => true]);
+            $_SESSION['csrf'] = bin2hex(random_bytes(32));
+            respond(['csrf' => $_SESSION['csrf'], 'user' => public_user(load_user($db, $me['id']))]);
 
         case 'POST admin_claim':
             if (!$user) {
@@ -718,9 +782,7 @@ try {
             if (!limit($db, 'claim:' . $ip, 10, 3600)) {
                 fail('Demasiados intentos. Esperá una hora.', 429);
             }
-            if ($db->query('SELECT 1 FROM users WHERE is_admin=1')->fetch()) {
-                fail('La administración ya está activada. Pedile acceso a un administrador.', 409);
-            }
+            // El código sirve siempre: si el dueño pierde el acceso a su cuenta, crea otra y lo vuelve a poner.
             if (!admin_code_ok($config, $input['code'] ?? '')) {
                 fail('El código no es correcto.', 403);
             }
@@ -769,9 +831,23 @@ try {
             respond(['items' => array_map(fn($u) => [...$u, 'photo' => photo_url($u['photo'])], query($db, "SELECT u.id, u.email, u.name, u.created, u.is_admin, u.blocked,
                     u.blocked_until, u.blocked_reason,
                     (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id AND t.status!='deleted') AS trips,
-                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total, u.photo, " . rating_sql('u.id', 'user') . ', '
+                    (SELECT COUNT(*) FROM trips t WHERE t.owner=u.id) AS trips_total, u.photo,
+                    " . no_password_sql($db) . ' AS no_password, ' . rating_sql('u.id', 'user') . ', '
                     . rating_sql('u.id', 'driver', 'driver') . ', ' . rating_sql('u.id', 'rider', 'rider') . "
                 FROM users u ORDER BY u.created DESC LIMIT 1000")->fetchAll())]);
+
+        case 'POST admin_contact':
+            $written = clean($input['phone'] ?? '');
+            $phone = $written === '' ? '' : login_id($written);
+            if ($phone === null || str_contains($phone, '@')) {
+                fail('Escribí un celular con código de área, sin 0 ni 15 (por ejemplo 11 2345 6789).');
+            }
+            query($db, 'INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ['contact', $phone]);
+            respond(['contact' => $phone]);
+
+        case 'GET admin_settings':
+            // Lo pide al abrir Administrar la página de una versión anterior que quedó guardada en el navegador.
+            respond(['googleClientId' => '']);
 
         case 'POST admin_trip':
             $trip = query($db, 'SELECT id,status FROM trips WHERE id=?', [(string)($input['id'] ?? '')])->fetch();
@@ -794,10 +870,11 @@ try {
             if (!$target) {
                 fail('Cuenta no encontrada.', 404);
             }
-            if ($target['id'] === $user['id'] && in_array($do, ['block', 'remove_admin'], true)) {
-                fail('No podés hacerte eso a vos mismo.');
+            if ($target['id'] === $user['id'] && in_array($do, ['block', 'remove_admin', 'reset_password'], true)) {
+                fail($do === 'reset_password' ? 'Tu contraseña la cambiás en Mi perfil.' : 'No podés hacerte eso a vos mismo.');
             }
-            if ($do === 'block' && (int)$target['is_admin'] === 1) {
+            // A otro administrador no se lo suspende ni se le da una contraseña nueva (se podría entrar con su cuenta).
+            if (in_array($do, ['block', 'reset_password'], true) && (int)$target['is_admin'] === 1) {
                 fail('Primero quitale la administración.');
             }
             if ($do === 'block') {
@@ -816,12 +893,9 @@ try {
             }
             if ($do === 'reset_password') {
                 // No hay recuperación por correo ni por SMS: si alguien se olvida la contraseña, la administración
-                // le da una nueva (y se la pasa por WhatsApp). Se cierran las sesiones que tenía abiertas.
-                if ($target['id'] === $user['id']) {
-                    fail('Tu contraseña la cambiás en Mi perfil.');
-                }
+                // le da una nueva (y se la manda a su celular o a su correo). Se cierran las sesiones que tenía abiertas.
                 $password = new_password();
-                query($db, 'UPDATE users SET password=?, auth_epoch=auth_epoch+1 WHERE id=?', [password_hash($password, PASSWORD_DEFAULT), $target['id']]);
+                set_password($db, $target['id'], $password);
                 respond(['password' => $password]);
             }
             $changes = ['unblock' => "blocked=0, blocked_until=0, blocked_reason=''", 'make_admin' => 'is_admin=1',

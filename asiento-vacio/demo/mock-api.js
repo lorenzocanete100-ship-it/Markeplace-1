@@ -84,13 +84,17 @@
     if (text.includes('@')) return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text) && text.length <= 254 ? text : null;
     if (!/^\+?[0-9 ()\-.]{8,25}$/.test(text)) return null;
     let digits = text.replace(/\D/g, '');
-    if (digits.length < 10) return null;
-    if (digits.startsWith('00')) digits = digits.slice(2);
-    if ((digits.length === 11 || digits.length === 13) && digits[0] === '0') digits = digits.slice(1);
-    if (digits.length === 12 && digits.startsWith('1115')) digits = `11${digits.slice(4)}`;
-    if (digits.length === 10 && digits[0] !== '0') digits = `549${digits}`;
-    else if (digits.length === 12 && digits.startsWith('54') && digits[2] !== '9') digits = `549${digits.slice(2)}`;
-    return digits[0] !== '0' && digits.length >= 11 && digits.length <= 15 ? `+${digits}` : null;
+    const international = text.startsWith('+') || digits.startsWith('00');
+    if (international) digits = digits.replace(/^0+/, '');
+    if (digits.startsWith('54') && (international || digits.length >= 12)) digits = digits.slice(2);
+    else if (international) return digits.length >= 10 && digits.length <= 15 ? `+${digits}` : null;
+    if (digits.startsWith('9')) digits = digits.slice(1);
+    if (digits.startsWith('0')) digits = digits.slice(1);
+    if (digits.length === 12) {
+      const at = (digits.startsWith('11') ? [2] : [3, 4]).find((i) => digits.slice(i, i + 2) === '15');
+      if (at) digits = digits.slice(0, at) + digits.slice(at + 2);
+    }
+    return /^(11|[23]\d)\d{8}$/.test(digits) ? `+549${digits}` : null;
   }
   // Contraseña de Marta en la prueba ("marta-prueba"), ya en el formato en que se guarda.
   const MARTA_PASSWORD = 'd4dc5b1de0b128e99ae4a3d5a52ce030526be7947ce121997755a3c79e9926d1';
@@ -219,7 +223,7 @@
 
     switch (action) {
       case 'session':
-        return { csrf: 'prueba', today: today(), user: publicUser(user) };
+        return { csrf: 'prueba', today: today(), user: publicUser(user), contact: db.contact || '' };
 
       case 'logout':
         db.uid = null;
@@ -231,7 +235,7 @@
         const password = typeof input.password === 'string' ? input.password : '';
         if (!login) fail('Escribí tu correo o tu celular con código de área, sin 0 ni 15 (por ejemplo 11 2345 6789).');
         if (!between(password, 10, 128)) fail('Usá una contraseña de 10 a 128 caracteres.');
-        const phone = login.startsWith('+');
+        const phone = !login.includes('@');
         let account = db.users.find((u) => u.email === login);
         if (action === 'register') {
           const name = clean(input.name);
@@ -383,7 +387,7 @@
         if (typeof input.current !== 'string' || me.password !== await digest(input.current)) fail('La contraseña actual no es correcta.', 403);
         if (typeof input.password !== 'string' || !between(input.password, 10, 128)) fail('Usá una contraseña nueva de 10 a 128 caracteres.');
         me.password = await digest(input.password);
-        return { ok: true };
+        return { csrf: 'prueba', user: publicUser(me) };
       }
 
       case 'profile_name': {
@@ -402,10 +406,17 @@
 
       case 'admin_claim': {
         if (!user) fail('Iniciá sesión.', 401);
-        if (db.users.some((u) => u.is_admin === 1)) fail('La administración ya está activada. Pedile acceso a un administrador.', 409);
         if (String(input.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() !== ADMIN_CODE) fail('El código no es correcto.', 403);
         user.is_admin = 1;
         return { user: publicUser(user) };
+      }
+
+      case 'admin_contact': {
+        const written = clean(input.phone);
+        const phone = written === '' ? '' : loginId(written);
+        if (phone === null || phone.includes('@')) fail('Escribí un celular con código de área, sin 0 ni 15 (por ejemplo 11 2345 6789).');
+        db.contact = phone;
+        return { contact: phone };
       }
 
       case 'admin_overview': {
@@ -479,14 +490,15 @@
       case 'admin_user': {
         const target = userById(input.id);
         if (!target) fail('Cuenta no encontrada.', 404);
-        if (target.id === user.id && ['block', 'remove_admin'].includes(input.action)) fail('No podés hacerte eso a vos mismo.');
-        if (input.action === 'block' && target.is_admin === 1) fail('Primero quitale la administración.');
+        if (target.id === user.id && ['block', 'remove_admin', 'reset_password'].includes(input.action)) {
+          fail(input.action === 'reset_password' ? 'Tu contraseña la cambiás en Mi perfil.' : 'No podés hacerte eso a vos mismo.');
+        }
+        if (['block', 'reset_password'].includes(input.action) && target.is_admin === 1) fail('Primero quitale la administración.');
         if (input.action === 'remove_photo') {
           target.photo = '';
           return { ok: true };
         }
         if (input.action === 'reset_password') {
-          if (target.id === user.id) fail('Tu contraseña la cambiás en Mi perfil.');
           const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
           const pick = () => Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => chars[b % chars.length]).join('');
           const password = `${pick()}-${pick()}-${pick()}`;
