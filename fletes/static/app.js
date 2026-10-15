@@ -1,5 +1,5 @@
 'use strict';
-// Fletá frontend: no build step, no inline scripts (strict CSP), DOM built with el() so user text is never parsed as HTML.
+// Bellandi frontend: no build step, no inline scripts (strict CSP), DOM built with el() so user text is never parsed as HTML.
 
 const state = { csrf: '', user: null, catalog: null, demo: false, quote: null, draft: null, afterLogin: null };
 const $view = document.getElementById('view');
@@ -302,7 +302,7 @@ function viewAuth(mode) {
       const r = await api('/api/auth/' + mode, { method: 'POST', body });
       state.csrf = r.csrf; state.user = r.user;
       const next = state.afterLogin || '#/mudanzas'; state.afterLogin = null;
-      toast(register ? '¡Bienvenido/a a Fletá!' : 'Hola de nuevo.');
+      toast(register ? '¡Bienvenido/a a Bellandi!' : 'Hola de nuevo.');
       if (location.hash === next) router(); else location.hash = next;
     });
   });
@@ -388,7 +388,7 @@ function driverCard(m) {
     el('p', { class: 'muted' }, `${d.vehicle} · ${d.vehicle_model} · Patente ${d.plate}`),
     el('p', {}, d.rating ? `★ ${d.rating} (${d.rating_count} mudanzas calificadas)` : 'Todavía sin calificaciones'),
     el('p', { class: 'muted' }, 'Antes de cargar, revisá que la patente del camión coincida.'),
-    ['assigned', 'in_transit'].includes(m.status) && ext(waLink(d.phone, `Hola ${d.name}, te escribo por la mudanza ${m.code} de Fletá.`), 'btn wa', 'Escribir por WhatsApp'));
+    ['assigned', 'in_transit'].includes(m.status) && ext(waLink(d.phone, `Hola ${d.name}, te escribo por la mudanza ${m.code} de Bellandi.`), 'btn wa', 'Escribir por WhatsApp'));
 }
 
 function rateCard(m) {
@@ -439,7 +439,7 @@ async function viewDriver() {
 }
 
 function driverPitch() {
-  return el('div', { class: 'card' }, el('h2', {}, 'Hacé mudanzas con Fletá'),
+  return el('div', { class: 'card' }, el('h2', {}, 'Hacé mudanzas con Bellandi'),
     el('p', {}, 'Tomá mudanzas en tu zona, de larga distancia o a países limítrofes. Cobrás seguro y elegís cuándo trabajar.'),
     el('h3', {}, 'Para verificarte necesitamos'),
     el('ul', {}, Object.values(state.catalog.docs).map(d => el('li', {}, d))),
@@ -531,8 +531,8 @@ function tripCard(t, refresh) {
       el('strong', {}, 'Cliente: '), t.client.name, ' · ', el('strong', {}, 'Recibe: '), t.receiver_name),
     el('details', {}, el('summary', {}, t.scope === 'internacional' ? 'Inventario para la aduana' : 'Qué hay que llevar'), el('p', { class: 'pre' }, t.inventory)),
     open && el('div', { class: 'row' },
-      ext(waLink(t.client.phone, `Hola ${t.client.name}, soy tu chofer de Fletá para la mudanza ${t.code}.`), 'btn wa', 'WhatsApp cliente'),
-      ext(waLink(t.receiver_phone, `Hola ${t.receiver_name}, soy el chofer de Fletá de la mudanza ${t.code}.`), 'btn ghost', 'WhatsApp quien recibe')),
+      ext(waLink(t.client.phone, `Hola ${t.client.name}, soy tu chofer de Bellandi para la mudanza ${t.code}.`), 'btn wa', 'WhatsApp cliente'),
+      ext(waLink(t.receiver_phone, `Hola ${t.receiver_name}, soy el chofer de Bellandi de la mudanza ${t.code}.`), 'btn ghost', 'WhatsApp quien recibe')),
     t.status === 'assigned' && el('div', { class: 'row' },
       el('button', { class: 'btn', onclick: act('pickup') }, 'Ya cargué la mudanza'),
       el('button', { class: 'btn ghost', onclick: async e => { const b = e.target; if (await ask('¿Liberar la mudanza? Vuelve a quedar disponible para otros choferes.', { ok: 'Liberar' })) act('release')({ target: b }); } }, 'Liberar')),

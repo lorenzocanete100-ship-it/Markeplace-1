@@ -1,4 +1,4 @@
-"""Build a single-file demo of Fletá (real frontend + in-browser fake backend) for quick testing.
+"""Build a single-file demo of Bellandi Mudanzas (real frontend + in-browser fake backend) for quick testing.
 
 Usage: python demo/build.py [output.html]
 """
@@ -38,7 +38,7 @@ demo_css = '''
 '''
 script = lambda code: '<script>\n' + code.replace('</script', '<\\/script') + '\n</script>'
 page = '\n'.join([
-    '<title>Fletá</title>',
+    '<title>Bellandi Mudanzas</title>',
     '<meta name="description" content="Mudanzas en Buenos Aires, a todo el país y a países limítrofes.">',
     '<style>\n' + (static / 'styles.css').read_text() + demo_css + '</style>',
     body.strip(),

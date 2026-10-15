@@ -1,4 +1,4 @@
-# Fletá — mudanzas entre particulares
+# Bellandi Mudanzas
 
 App web de mudanzas: **dentro de Buenos Aires** (CABA y GBA), **a todo el país** (100 ciudades) e **internacionales a países limítrofes** (Uruguay, Chile, Paraguay, Bolivia y Brasil, 25 ciudades). Tiene choferes verificados y se paga con Mercado Pago o con tarjeta.
 

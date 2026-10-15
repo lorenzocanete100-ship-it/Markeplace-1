@@ -1,4 +1,4 @@
-"""Fletá: mudanzas entre particulares, dentro de Buenos Aires, a todo el país y a países limítrofes.
+"""Bellandi Mudanzas: mudanzas entre particulares, dentro de Buenos Aires, a todo el país y a países limítrofes.
 
 Run with Gunicorn: gunicorn 'app:create_app()'
 """
@@ -610,7 +610,7 @@ def create_app(test_config=None):
             'back_urls': {k: f'{base}/pago/{mid}' for k in ('success', 'pending', 'failure')},
             'auto_return': 'approved',
             'notification_url': f'{base}/api/payments/webhook',
-            'statement_descriptor': 'FLETA',
+            'statement_descriptor': 'BELLANDI',
             'payment_methods': {'installments': 12},
         }
         if method == 'card':

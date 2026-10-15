@@ -12,10 +12,10 @@ from werkzeug.security import generate_password_hash
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Administración de Fletá')
+    parser = argparse.ArgumentParser(description='Administración de Bellandi Mudanzas')
     parser.add_argument('command', choices=['create-admin', 'reset-password', 'backup'])
     parser.add_argument('--email')
-    parser.add_argument('--output', default='backup-fleta.db')
+    parser.add_argument('--output', default='backup-bellandi.db')
     args = parser.parse_args()
     database = Path(os.environ.get('DATA_DIR', './data')) / 'mudanzas.db'
     if not database.exists():
