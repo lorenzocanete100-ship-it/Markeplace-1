@@ -211,7 +211,18 @@ function viewHome() {
         ['internacional', 'Países limítrofes', 'Uruguay, Chile, Paraguay, Bolivia y Brasil, con gestión aduanera.'],
       ].map(([k, title, text]) => el('button', { type: 'button', class: 'scope scope-' + k, onclick: example(k) },
         el('strong', {}, title), el('span', {}, text), el('small', {}, 'Ej. ' + EXAMPLES[k][2]))))),
+    trustSection(),
     el('div', { class: 'two' }, form, el('div', {}, result, howItWorks())));
+}
+
+function trustSection() {
+  return el('section', { class: 'trust', 'aria-label': 'Por qué elegirnos' },
+    el('div', { class: 'trust-item' }, el('span', { class: 'trust-icon', 'aria-hidden': 'true' }, '★'),
+      el('div', {}, el('h2', {}, 'Mucha experiencia en mudanzas'),
+        el('p', {}, 'Hacemos mudanzas de todo tipo: departamentos, casas y oficinas, dentro de Buenos Aires, al interior y a los países limítrofes. Sabemos cómo cuidar cada cosa, del sillón a la vajilla.'))),
+    el('div', { class: 'trust-item' }, el('span', { class: 'trust-icon', 'aria-hidden': 'true' }, '✔'),
+      el('div', {}, el('h2', {}, 'Garantía total del envío'),
+        el('p', {}, 'Tu mudanza llega completa y en el mismo estado en que la cargamos. Si algo se rompe o se pierde en el viaje, nos hacemos cargo.'))));
 }
 
 function howItWorks() {
@@ -241,6 +252,7 @@ function quoteCards(q, onShared) {
     q.crossing && el('p', { class: 'muted' }, 'Cruce de frontera: ' + q.crossing),
     el('p', { class: 'price' }, money(q.price)),
     el('table', { class: 'table' }, el('tbody', {}, lines.map(([k, v]) => el('tr', {}, el('td', {}, k), el('td', {}, money(v)))))),
+    el('p', { class: 'guarantee' }, '✔ Incluye garantía total del envío'),
     el('p', { class: 'muted' }, 'Precio final con IVA. El chofer no puede cobrarte nada extra el día de la mudanza.'),
     q.shared_available && !q.shared && el('button', { class: 'btn ghost', type: 'button', onclick: onShared },
       `Ahorrá ${Math.round(state.catalog.shared_discount * 100)} % del transporte con camión compartido`),
@@ -371,6 +383,7 @@ function payCard(m) {
     }
   });
   return el('div', { class: 'card' }, el('h3', {}, 'Pagá para reservar la mudanza'),
+    el('p', { class: 'guarantee' }, '✔ Con garantía total del envío'),
     el('p', { class: 'muted' }, 'La mudanza se publica para los choferes cuando se acredita el pago. Si nadie la toma o la cancelás antes de cargar, te devolvemos todo.'),
     el('div', { class: 'row' },
       el('button', { class: 'btn mp', onclick: pay('mercadopago') }, 'Pagar con Mercado Pago'),
