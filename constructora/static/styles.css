@@ -123,3 +123,16 @@ legend { font-weight: 800; font-size: 1.1rem; margin-bottom: 12px; display: flex
 .admin-section h2 { margin-bottom: 12px; }
 .upload { display: grid; gap: 10px; }
 .gallery .del { width: calc(100% - 28px); margin: 0 14px 12px; }
+
+/* Modelos que construimos */
+.modelos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; }
+.modelo { background: var(--surface, #fff); border: 1px solid var(--line, #dfe1e4); border-radius: var(--r, var(--radius, 12px)); overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.modelo svg { display: block; width: 100%; height: auto; aspect-ratio: 400 / 260; }
+.modelo-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.modelo-body h3 { margin: 0; font-size: 1.2rem; }
+.modelo-body p { margin: 0; color: var(--muted, #5f646b); }
+.modelo-m2 { font-variant-numeric: tabular-nums; }
+.modelo-m2 b { white-space: nowrap; color: var(--ink, #1b1d20); }
+.modelo-cta { margin-top: auto; align-self: flex-start; padding-top: 8px; font-weight: 700; color: var(--ink, #1b1d20); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; text-decoration-color: var(--accent, #ffc61a); }
+.modelo-cta:hover { text-decoration-thickness: 4px; }
+.modelos-nota { margin: 14px 0 0; font-size: .85rem; color: var(--muted, #5f646b); }

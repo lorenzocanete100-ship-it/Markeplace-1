@@ -154,3 +154,16 @@
 
   update();
 })();
+
+(() => {
+  // "Cotizar este modelo": carga los m² del modelo en el cotizador.
+  document.querySelectorAll('.modelo-cta').forEach((a) => {
+    a.addEventListener('click', () => {
+      const form = document.querySelector('[name="m2"]').form;
+      form.querySelector('[name="service"][value="llave_en_mano"]').checked = true;
+      form.querySelector('[name="mode"][value="con_materiales"]').checked = true;
+      form.querySelector('[name="m2"]').value = a.dataset.m2;
+      form.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  });
+})();
