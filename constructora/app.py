@@ -1,4 +1,4 @@
-"""V+X Constructora: web con cotizador automático. Run with Gunicorn: gunicorn 'app:create_app()'."""
+"""Conexa Constructora: web con cotizador automático. Run with Gunicorn: gunicorn 'app:create_app()'."""
 import io
 import json
 import os
@@ -176,7 +176,7 @@ def create_app(test_config=None):
             session['csrf'] = secrets.token_urlsafe(32)
         return jsonify(csrf=session['csrf'], prices=PRICES, services=SERVICES,
                        photoServices=list(PHOTO_SERVICES), maxPhotos=MAX_PHOTOS,
-                       whatsapp=whatsapp('Hola V+X Constructora, quiero pedir un presupuesto.'))
+                       whatsapp=whatsapp('Hola Conexa Constructora, quiero pedir un presupuesto.'))
 
     @app.post('/api/quotes')
     def create_quote():
@@ -214,7 +214,7 @@ def create_app(test_config=None):
             raise
         ref = qid[:8].upper()
         price = f'USD {total:,.0f}'.replace(',', '.') if total is not None else 'a evaluar con fotos'
-        text = (f'Hola V+X Constructora, envié la solicitud #{ref}.\n'
+        text = (f'Hola Conexa Constructora, envié la solicitud #{ref}.\n'
                 f'Servicio: {SERVICES[values["service"]]}\nSuperficie: {m2:g} m²\n'
                 f'Estimado: {price}\nObra en: {values["location"]}')
         if values['service'] in PHOTO_SERVICES and not keys:
@@ -272,7 +272,7 @@ def create_app(test_config=None):
     @app.get('/admin')
     def admin():
         if not admin_ok():
-            return Response('Acceso restringido.', 401, {'WWW-Authenticate': 'Basic realm="V+X admin"'})
+            return Response('Acceso restringido.', 401, {'WWW-Authenticate': 'Basic realm="Conexa admin"'})
         return send_from_directory(app.static_folder, 'admin.html')
 
     @app.get('/admin/api/quotes')

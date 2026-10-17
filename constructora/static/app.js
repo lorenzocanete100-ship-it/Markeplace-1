@@ -25,7 +25,7 @@
         const fig = document.createElement('figure');
         const img = document.createElement('img');
         img.src = '/api/works/photos/' + w.photo;
-        img.alt = w.caption || 'Obra de V+X Constructora';
+        img.alt = w.caption || 'Obra de Conexa Constructora';
         img.loading = 'lazy';
         fig.append(img);
         if (w.caption) {
@@ -156,6 +156,11 @@
 })();
 
 (() => {
+  // Foto real opcional: si no se subió fotos/modelo-N.jpg al hosting, queda el dibujo.
+  document.querySelectorAll('.modelo-foto').forEach((img) => {
+    const drop = () => img.remove();
+    if (img.complete && !img.naturalWidth) drop(); else img.addEventListener('error', drop);
+  });
   // "Cotizar este modelo": carga los m² del modelo en el cotizador.
   document.querySelectorAll('.modelo-cta').forEach((a) => {
     a.addEventListener('click', () => {
