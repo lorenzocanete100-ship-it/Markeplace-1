@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Conexa Constructora</title>
-<meta name="description" content="Conexa Constructora: construcción llave en mano y refacciones con garantía total de 10 años escrita ante escribano. Cotizá tu obra online.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='6' fill='%23ffc61a' stroke='%23000' stroke-width='4'/%3E%3Ctext x='20' y='27' text-anchor='middle' font-family='Arial' font-weight='900' font-size='24'%3EC%3C/text%3E%3C/svg%3E">
+<title>Konexa Constructora</title>
+<meta name="description" content="Konexa Constructora: construcción llave en mano y refacciones con garantía total de 10 años escrita ante escribano. Cotizá tu obra online.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='6' fill='%23ffc61a' stroke='%23000' stroke-width='4'/%3E%3Ctext x='20' y='27' text-anchor='middle' font-family='Arial' font-weight='900' font-size='24'%3EK%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
@@ -173,7 +173,7 @@ footer p { margin: 4px 0; }
 <body>
 <header class="bar">
   <div class="wrap">
-    <a class="nameplate" href="#inicio" aria-label="Conexa Constructora, inicio"><span class="vx">Conexa</span> <span class="nc">Constructora</span></a>
+    <a class="nameplate" href="#inicio" aria-label="Konexa Constructora, inicio"><span class="vx">Konexa</span> <span class="nc">Constructora</span></a>
     <nav>
       <a class="l" href="#garantia">Garantía</a>
       <a class="l" href="#precios">Precios</a>
@@ -187,10 +187,10 @@ footer p { margin: 4px 0; }
 <main>
   <section class="hero" id="inicio">
     <div class="wrap">
-      <p class="nameplate lg"><span class="vx">Conexa</span> <span class="nc">Constructora</span></p>
+      <p class="nameplate lg"><span class="vx">Konexa</span> <span class="nc">Constructora</span></p>
       <p class="kicker">Construcción llave en mano · Refacciones · Humedad</p>
       <h1>La constructora que <em>firma su garantía</em> ante escribano</h1>
-      <p class="lead">En Conexa te damos <b>garantía total</b>. Cada obra sale con <b>10 años de garantía escrita y certificada por escribano público</b>. Tenemos mucha trayectoria, cumplimos los plazos y un solo responsable te acompaña de principio a fin.</p>
+      <p class="lead">En Konexa te damos <b>garantía total</b>. Cada obra sale con <b>10 años de garantía escrita y certificada por escribano público</b>. Tenemos mucha trayectoria, cumplimos los plazos y un solo responsable te acompaña de principio a fin.</p>
       <div class="cta">
         <a class="btn" href="#cotizador">Cotizá tu obra ahora</a>
         <a class="btn wa js-wa" href="https://wa.me/" target="_blank" rel="noopener">Escribinos por WhatsApp</a>
@@ -444,7 +444,7 @@ footer p { margin: 4px 0; }
 
 <footer>
   <div class="wrap">
-    <p class="nameplate"><span class="vx">Conexa</span> <span class="nc">Constructora</span></p>
+    <p class="nameplate"><span class="vx">Konexa</span> <span class="nc">Constructora</span></p>
     <p>Construcción llave en mano y refacciones</p>
     <p>Garantía total: 10 años escrita y certificada por escribano.</p>
   </div>
@@ -467,7 +467,7 @@ footer p { margin: 4px 0; }
 
   const usd = (n) => 'USD ' + Math.round(n).toLocaleString('es-AR');
   const wa = (text) => 'https://wa.me/' + WHATSAPP + '?text=' + encodeURIComponent(text);
-  document.querySelectorAll('.js-wa').forEach((a) => { a.href = wa('Hola Conexa Constructora, quiero pedir un presupuesto.'); });
+  document.querySelectorAll('.js-wa').forEach((a) => { a.href = wa('Hola Konexa Constructora, quiero pedir un presupuesto.'); });
 
   function state() {
     const fd = new FormData(form);
@@ -534,7 +534,7 @@ footer p { margin: 4px 0; }
     const total = estimate(s);
     const ref = '#' + Math.random().toString(36).slice(2, 8).toUpperCase();
     const lines = [
-      'Hola Conexa Constructora, quiero un presupuesto (' + ref + ').',
+      'Hola Konexa Constructora, quiero un presupuesto (' + ref + ').',
       'Servicio: ' + NAMES[s.service],
       'Superficie: ' + s.m2.toLocaleString('es-AR') + ' m²' + (s.service === 'humedad' ? ' afectados' : ''),
     ];
@@ -590,7 +590,7 @@ footer p { margin: 4px 0; }
         const fig = document.createElement('figure');
         const img = document.createElement('img');
         img.src = '/_blob/' + w.asset;
-        img.alt = w.caption || 'Obra de Conexa Constructora';
+        img.alt = w.caption || 'Obra de Konexa Constructora';
         img.loading = 'lazy';
         fig.append(img);
         if (w.caption) { const c = document.createElement('figcaption'); c.textContent = String(w.caption); fig.append(c); }

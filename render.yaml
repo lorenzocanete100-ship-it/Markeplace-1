@@ -1,4 +1,4 @@
-# Render Blueprint para Conexa Constructora (render.com → New → Blueprint).
+# Render Blueprint para Konexa Constructora (render.com → New → Blueprint).
 services:
   - type: web
     name: vx-constructora

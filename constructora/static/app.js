@@ -25,7 +25,7 @@
         const fig = document.createElement('figure');
         const img = document.createElement('img');
         img.src = '/api/works/photos/' + w.photo;
-        img.alt = w.caption || 'Obra de Conexa Constructora';
+        img.alt = w.caption || 'Obra de Konexa Constructora';
         img.loading = 'lazy';
         fig.append(img);
         if (w.caption) {

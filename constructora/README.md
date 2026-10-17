@@ -1,4 +1,4 @@
-# Conexa Constructora
+# Konexa Constructora
 
 Web de la constructora con **cotizador automático**: construcción llave en mano, refacciones y humedad.
 Garantía total: 10 años escrita y certificada por escribano.
