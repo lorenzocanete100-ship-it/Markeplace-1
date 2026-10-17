@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel | Konexa Constructora</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body>
+  <header class="nav"><div class="wrap nav-in"><span class="brand"><span class="nameplate"><span class="vx">Konexa</span> <span class="nc">Constructora</span></span> Panel</span><a class="btn btn-sm" href="/" target="_blank" rel="noopener">Ver la página</a></div></header>
+  <main class="wrap">
+    <section class="admin-section">
+      <h2>Nuestras obras</h2>
+      <p class="sub">Las fotos que subas acá aparecen en la página, en la sección "Nuestras obras".</p>
+      <form class="panel upload" id="upload">
+        <label class="drop">
+          <input type="file" name="photo" id="workPhoto" accept="image/jpeg,image/png,image/webp" required>
+          <span id="workPhotoLabel">📷 Elegí una foto de la obra <small>(JPG, PNG o WebP, hasta 8 MB)</small></span>
+        </label>
+        <label class="field">Título (opcional)<input name="caption" id="caption" maxlength="120" placeholder="Ej: Casa 140 m² llave en mano, Morón"></label>
+        <p class="error" id="uploadError" role="alert" hidden></p>
+        <button class="btn" type="submit" id="uploadBtn">Subir foto</button>
+      </form>
+      <div class="gallery" id="works" style="margin-top:16px"></div>
+    </section>
+    <section class="admin-section">
+      <h2>Solicitudes de presupuesto</h2>
+      <div class="admin-list" id="list"><p>Cargando…</p></div>
+    </section>
+  </main>
+</body>
+</html>

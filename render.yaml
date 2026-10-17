@@ -1,0 +1,29 @@
+# Render Blueprint para Konexa Constructora (render.com → New → Blueprint).
+services:
+  - type: web
+    name: vx-constructora
+    runtime: python
+    rootDir: constructora
+    # El disco persistente (fotos y solicitudes) requiere un plan pago.
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn 'app:create_app()' --bind 0.0.0.0:$PORT --workers 2 --timeout 60 --preload
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: APP_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: SECRET_KEY
+        generateValue: true
+      # Se completan en el panel de Render al crear el servicio.
+      - key: WHATSAPP_NUMBER
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+    disk:
+      name: vx-data
+      mountPath: /var/data
+      sizeGB: 1
