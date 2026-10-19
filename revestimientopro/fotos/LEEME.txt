@@ -1,0 +1,4 @@
+Subí acá las fotos de tus trabajos con estos nombres:
+trabajo1.jpg, trabajo2.jpg, trabajo3.jpg, trabajo4.jpg, trabajo5.jpg, trabajo6.jpg
+
+Para agregar más fotos o cambiar los títulos, editá la lista TRABAJOS en script.js.

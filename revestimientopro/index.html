@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RevestimientoPro | Colocación y venta de texturado</title>
+  <meta name="description" content="RevestimientoPro: colocación y venta de revestimiento texturado Ancaflex. Calculá el precio de tu obra por m² al instante." />
+  <link rel="icon" href="favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a href="#inicio" class="logo">Revestimiento<span>Pro</span></a>
+      <button class="nav-toggle" aria-label="Abrir menú" aria-expanded="false">☰</button>
+      <nav class="nav-links">
+        <a href="#servicios">Servicios</a>
+        <a href="#calculadora">Calculadora</a>
+        <a href="#trabajos">Mis trabajos</a>
+        <a href="#contacto" class="btn btn-sm">Contacto</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section id="inicio" class="hero">
+      <div class="container hero-inner">
+        <div class="hero-text">
+          <span class="badge">Colocación y venta de texturado</span>
+          <h1>Paredes que <span class="grad">transforman</span> tu espacio</h1>
+          <p>Aplicamos revestimiento texturado Ancaflex en frentes, interiores y medianeras. Terminación prolija, duradera y con garantía.</p>
+          <div class="hero-cta">
+            <a href="#calculadora" class="btn">Calcular presupuesto</a>
+            <a href="#trabajos" class="btn btn-ghost">Ver trabajos</a>
+          </div>
+          <ul class="stats">
+            <li><strong>$15.000</strong><span>m² con material</span></li>
+            <li><strong>$7.000</strong><span>m² mano de obra</span></li>
+          </ul>
+        </div>
+        <div class="hero-visual" aria-hidden="true">
+          <div class="texture-card t1"></div>
+          <div class="texture-card t2"></div>
+          <div class="texture-card t3"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="servicios" class="section">
+      <div class="container">
+        <h2 class="section-title">Servicios</h2>
+        <p class="section-sub">Elegí la modalidad que mejor se adapte a tu obra.</p>
+        <div class="cards">
+          <article class="card featured">
+            <div class="card-icon">🧱</div>
+            <h3>Material + colocación</h3>
+            <p class="price">$15.000 <small>/ m²</small></p>
+            <ul>
+              <li>Revestimiento texturado Ancaflex</li>
+              <li>Preparación de superficie</li>
+              <li>Aplicación profesional</li>
+              <li>Limpieza final de obra</li>
+            </ul>
+          </article>
+          <article class="card">
+            <div class="card-icon">🛠️</div>
+            <h3>Solo mano de obra</h3>
+            <p class="price">$7.000 <small>/ m²</small></p>
+            <ul>
+              <li>Vos ponés el material</li>
+              <li>Preparación de superficie</li>
+              <li>Aplicación profesional</li>
+              <li>Limpieza final de obra</li>
+            </ul>
+          </article>
+          <article class="card">
+            <div class="card-icon">📦</div>
+            <h3>Venta de texturado</h3>
+            <p class="price">Consultar</p>
+            <ul>
+              <li>Ancaflex en distintas granulometrías</li>
+              <li>Variedad de colores</li>
+              <li>Asesoramiento sin cargo</li>
+              <li>Envíos a coordinar</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="calculadora" class="section section-alt">
+      <div class="container calc-wrap">
+        <div>
+          <h2 class="section-title">Calculá tu presupuesto</h2>
+          <p class="section-sub">Ingresá los metros cuadrados o las medidas de la pared y elegí la modalidad.</p>
+        </div>
+
+        <form class="calc" id="calc" novalidate>
+          <div class="tabs" role="tablist">
+            <button type="button" class="tab active" data-mode="m2" role="tab">Tengo los m²</button>
+            <button type="button" class="tab" data-mode="medidas" role="tab">Tengo las medidas</button>
+          </div>
+
+          <div class="field mode-m2">
+            <label for="m2">Superficie (m²)</label>
+            <input id="m2" type="number" inputmode="decimal" min="0" step="0.1" placeholder="Ej: 45" />
+          </div>
+
+          <div class="field-row mode-medidas hidden">
+            <div class="field">
+              <label for="largo">Largo (m)</label>
+              <input id="largo" type="number" inputmode="decimal" min="0" step="0.1" placeholder="Ej: 10" />
+            </div>
+            <div class="field">
+              <label for="alto">Alto (m)</label>
+              <input id="alto" type="number" inputmode="decimal" min="0" step="0.1" placeholder="Ej: 2.8" />
+            </div>
+          </div>
+
+          <fieldset class="options">
+            <legend>Modalidad</legend>
+            <label class="option">
+              <input type="radio" name="tipo" value="15000" checked />
+              <span>
+                <strong>Con material (Ancaflex)</strong>
+                <em>$15.000 / m²</em>
+              </span>
+            </label>
+            <label class="option">
+              <input type="radio" name="tipo" value="7000" />
+              <span>
+                <strong>Solo mano de obra</strong>
+                <em>$7.000 / m²</em>
+              </span>
+            </label>
+          </fieldset>
+
+          <div class="result" aria-live="polite">
+            <div class="result-line"><span>Superficie</span><span id="r-m2">0 m²</span></div>
+            <div class="result-line"><span>Precio por m²</span><span id="r-unit">$15.000</span></div>
+            <div class="result-total"><span>Total estimado</span><span id="r-total">$0</span></div>
+          </div>
+
+          <a id="wa-quote" class="btn btn-block" href="#" target="_blank" rel="noopener">Pedir este presupuesto por WhatsApp</a>
+          <p class="note">* Precio estimado. El valor final se confirma tras visitar la obra.</p>
+        </form>
+      </div>
+    </section>
+
+    <section id="trabajos" class="section">
+      <div class="container">
+        <h2 class="section-title">Mis trabajos</h2>
+        <p class="section-sub">Algunos de los revestimientos que realizamos.</p>
+        <div class="gallery" id="gallery"></div>
+      </div>
+    </section>
+
+    <section id="contacto" class="section section-alt">
+      <div class="container contact">
+        <h2 class="section-title">¿Listo para renovar tus paredes?</h2>
+        <p class="section-sub">Escribinos y coordinamos una visita sin cargo.</p>
+        <div class="contact-actions">
+          <a id="wa-contact" class="btn" href="#" target="_blank" rel="noopener">WhatsApp</a>
+          <a id="tel-contact" class="btn btn-ghost" href="#">Llamar</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">© <span id="year"></span> RevestimientoPro · Colocación y venta de texturado</div>
+  </footer>
+
+  <div class="lightbox" id="lightbox" hidden>
+    <button class="lightbox-close" aria-label="Cerrar">×</button>
+    <img alt="" />
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
