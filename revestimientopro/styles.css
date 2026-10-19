@@ -216,3 +216,39 @@ img { max-width: 100%; display: block; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Fotos de ejemplo y enlace de administración */
+.gallery-item.is-example { cursor: default; }
+.footer a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.link { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+/* Administración de fotos */
+.btn:focus-visible, .tab:focus-visible, .option:has(input:focus-visible) { outline: 2px solid var(--accent-2); outline-offset: 3px; }
+.btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+.btn-danger { background: transparent; color: #fca5a5; border: 1px solid rgba(248, 113, 113, .45); box-shadow: none; }
+.btn-danger:hover { background: rgba(248, 113, 113, .12); box-shadow: none; }
+.admin-wrap { display: grid; gap: 24px; max-width: 820px; }
+.admin-wrap .section-sub { margin-bottom: 0; }
+.admin-login { max-width: 420px; }
+.field input[type="file"] { font-size: 1rem; padding: 12px; }
+.alert { padding: 14px 18px; border-radius: 12px; font-weight: 500; }
+.alert.ok { background: rgba(74, 222, 128, .12); color: #86efac; }
+.alert.err { background: rgba(248, 113, 113, .12); color: #fca5a5; }
+.empty { color: var(--muted); padding: 28px; border: 1px dashed var(--border); border-radius: var(--radius); text-align: center; }
+.admin-list { list-style: none; display: grid; gap: 14px; }
+.admin-item {
+  display: grid; grid-template-columns: 160px 1fr; gap: 18px; align-items: center;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;
+}
+.admin-item img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 12px; }
+.admin-item-form { display: grid; gap: 12px; min-width: 0; }
+.admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.editor-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.editor-bar .section-sub { margin-bottom: 0; }
+.editor { margin-bottom: 28px; }
+.editor[hidden] { display: none; }
+.editor .upload-form { margin-bottom: 18px; }
+.status { color: var(--muted); font-size: .95rem; min-height: 1.4em; }
+@media (max-width: 560px) {
+  .admin-item { grid-template-columns: 1fr; }
+}

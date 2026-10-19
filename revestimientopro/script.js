@@ -6,16 +6,12 @@ const CONFIG = {
   precios: { material: 15000, manoDeObra: 7000 },
 };
 
-// Fotos de tus trabajos: subí las imágenes a la carpeta "fotos/" y agregalas acá.
-// Si una foto no existe todavía, se muestra una textura de ejemplo.
-const TRABAJOS = [
-  { src: "fotos/trabajo1.jpg", titulo: "Frente de vivienda" },
-  { src: "fotos/trabajo2.jpg", titulo: "Medianera exterior" },
-  { src: "fotos/trabajo3.jpg", titulo: "Living interior" },
-  { src: "fotos/trabajo4.jpg", titulo: "Fachada comercial" },
-  { src: "fotos/trabajo5.jpg", titulo: "Quincho" },
-  { src: "fotos/trabajo6.jpg", titulo: "Muro perimetral" },
-];
+// Las fotos de tus trabajos se cargan desde fotos/fotos.json, que se edita desde admin.php.
+// Mientras no haya fotos, se muestran estas texturas de ejemplo.
+const EJEMPLOS = [
+  "Frente de vivienda", "Medianera exterior", "Living interior",
+  "Fachada comercial", "Quincho", "Muro perimetral",
+].map((titulo) => ({ titulo }));
 
 // ===== Utilidades =====
 const $ = (sel) => document.querySelector(sel);
@@ -81,36 +77,55 @@ const gallery = $("#gallery");
 const lightbox = $("#lightbox");
 const placeholders = ["var(--tex-a)", "var(--tex-b)", "var(--tex-c)"];
 
-TRABAJOS.forEach((t, i) => {
-  const fig = document.createElement("figure");
-  fig.className = "gallery-item";
-  const img = new Image();
-  img.alt = t.titulo;
-  img.loading = "lazy";
-  img.src = t.src;
-  img.onerror = () => {
-    const ph = document.createElement("span");
-    ph.className = "ph";
-    ph.style.background = placeholders[i % placeholders.length];
-    img.replaceWith(ph);
-    fig.style.cursor = "default";
-  };
-  fig.append(img);
-  const cap = document.createElement("figcaption");
-  cap.textContent = t.titulo;
-  fig.append(cap);
-  fig.addEventListener("click", () => {
-    const el = fig.querySelector("img");
-    if (!el) return;
-    lightbox.querySelector("img").src = el.src;
-    lightbox.querySelector("img").alt = el.alt;
-    lightbox.hidden = false;
+function placeholder(i) {
+  const ph = document.createElement("span");
+  ph.className = "ph";
+  ph.style.background = placeholders[i % placeholders.length];
+  return ph;
+}
+
+function renderGallery(items) {
+  const lista = items.length ? items : EJEMPLOS;
+  gallery.replaceChildren();
+  lista.forEach((t, i) => {
+    const fig = document.createElement("figure");
+    fig.className = "gallery-item";
+    if (t.src) {
+      const img = new Image();
+      img.alt = t.titulo || "Trabajo de revestimiento texturado";
+      img.loading = "lazy";
+      img.src = t.src;
+      img.onerror = () => img.replaceWith(placeholder(i));
+      fig.append(img);
+      fig.addEventListener("click", () => {
+        const el = fig.querySelector("img");
+        if (!el) return;
+        lightbox.querySelector("img").src = el.src;
+        lightbox.querySelector("img").alt = el.alt;
+        lightbox.hidden = false;
+      });
+    } else {
+      fig.append(placeholder(i));
+      fig.classList.add("is-example");
+    }
+    if (t.titulo) {
+      const cap = document.createElement("figcaption");
+      cap.textContent = t.titulo;
+      fig.append(cap);
+    }
+    gallery.append(fig);
   });
-  gallery.append(fig);
-});
+}
 
 const closeLightbox = () => (lightbox.hidden = true);
 lightbox.addEventListener("click", (e) => {
   if (e.target !== lightbox.querySelector("img")) closeLightbox();
 });
 document.addEventListener("keydown", (e) => e.key === "Escape" && closeLightbox());
+
+// ===== Fuente de fotos =====
+renderGallery([]);
+fetch("fotos/fotos.json", { cache: "no-store" })
+  .then((r) => (r.ok ? r.json() : []))
+  .then((fotos) => renderGallery(Array.isArray(fotos) ? fotos : []))
+  .catch(() => {});
