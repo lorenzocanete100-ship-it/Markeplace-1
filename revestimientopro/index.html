@@ -37,8 +37,8 @@
             <a href="#trabajos" class="btn btn-ghost">Ver trabajos</a>
           </div>
           <ul class="stats">
-            <li><strong>$15.000</strong><span>m² con material</span></li>
-            <li><strong>$7.000</strong><span>m² mano de obra</span></li>
+            <li><small>desde</small><strong data-precio="tradicional.material">$15.000</strong><span>m² con material</span></li>
+            <li><small>desde</small><strong data-precio="tradicional.manoDeObra">$7.000</strong><span>m² mano de obra</span></li>
           </ul>
         </div>
         <div class="hero-visual" aria-hidden="true">
@@ -57,7 +57,10 @@
           <article class="card featured">
             <div class="card-icon">🧱</div>
             <h3>Material + colocación</h3>
-            <p class="price">$15.000 <small>/ m²</small></p>
+            <dl class="price-list">
+              <div><dt>Textura tradicional</dt><dd><span data-precio="tradicional.material">$15.000</span> <small>/ m²</small></dd></div>
+              <div><dt>Textura fina</dt><dd><span data-precio="fina.material">$18.000</span> <small>/ m²</small></dd></div>
+            </dl>
             <ul>
               <li>Revestimiento texturado Ancaflex</li>
               <li>Preparación de superficie</li>
@@ -68,7 +71,10 @@
           <article class="card">
             <div class="card-icon">🛠️</div>
             <h3>Solo mano de obra</h3>
-            <p class="price">$7.000 <small>/ m²</small></p>
+            <dl class="price-list">
+              <div><dt>Textura tradicional</dt><dd><span data-precio="tradicional.manoDeObra">$7.000</span> <small>/ m²</small></dd></div>
+              <div><dt>Textura fina</dt><dd><span data-precio="fina.manoDeObra">$9.000</span> <small>/ m²</small></dd></div>
+            </dl>
             <ul>
               <li>Vos ponés el material</li>
               <li>Preparación de superficie</li>
@@ -95,7 +101,7 @@
       <div class="container calc-wrap">
         <div>
           <h2 class="section-title">Calculá tu presupuesto</h2>
-          <p class="section-sub">Ingresá los metros cuadrados o las medidas de la pared y elegí la modalidad.</p>
+          <p class="section-sub">Ingresá los metros cuadrados o las medidas de la pared y elegí el tipo de textura y la modalidad.</p>
         </div>
 
         <form class="calc" id="calc" novalidate>
@@ -120,25 +126,38 @@
             </div>
           </div>
 
+          <fieldset class="options options-row">
+            <legend>Tipo de textura</legend>
+            <label class="option">
+              <input type="radio" name="textura" value="tradicional" checked />
+              <span><strong>Tradicional</strong></span>
+            </label>
+            <label class="option">
+              <input type="radio" name="textura" value="fina" />
+              <span><strong>Fina</strong></span>
+            </label>
+          </fieldset>
+
           <fieldset class="options">
             <legend>Modalidad</legend>
             <label class="option">
-              <input type="radio" name="tipo" value="15000" checked />
+              <input type="radio" name="tipo" value="material" checked />
               <span>
                 <strong>Con material (Ancaflex)</strong>
-                <em>$15.000 / m²</em>
+                <em id="p-material">$15.000 / m²</em>
               </span>
             </label>
             <label class="option">
-              <input type="radio" name="tipo" value="7000" />
+              <input type="radio" name="tipo" value="manoDeObra" />
               <span>
                 <strong>Solo mano de obra</strong>
-                <em>$7.000 / m²</em>
+                <em id="p-manoDeObra">$7.000 / m²</em>
               </span>
             </label>
           </fieldset>
 
           <div class="result" aria-live="polite">
+            <div class="result-line"><span>Textura</span><span id="r-textura">Tradicional</span></div>
             <div class="result-line"><span>Superficie</span><span id="r-m2">0 m²</span></div>
             <div class="result-line"><span>Precio por m²</span><span id="r-unit">$15.000</span></div>
             <div class="result-total"><span>Total estimado</span><span id="r-total">$0</span></div>

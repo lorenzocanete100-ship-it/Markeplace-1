@@ -73,7 +73,8 @@ img { max-width: 100%; display: block; }
 .hero p { color: var(--muted); font-size: 1.15rem; max-width: 520px; margin-bottom: 32px; }
 .hero-cta { display: flex; gap: 14px; flex-wrap: wrap; }
 .stats { display: flex; gap: 36px; list-style: none; margin-top: 44px; }
-.stats strong { display: block; font-size: 1.7rem; }
+.stats small { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .1em; }
+.stats strong { display: block; font-size: 1.7rem; line-height: 1.2; }
 .stats span { color: var(--muted); font-size: .9rem; }
 
 .hero-visual { position: relative; height: 420px; }
@@ -115,6 +116,11 @@ img { max-width: 100%; display: block; }
 .card h3 { font-size: 1.3rem; margin-bottom: 6px; }
 .price { font-size: 2rem; font-weight: 800; margin-bottom: 18px; }
 .price small { font-size: 1rem; color: var(--muted); font-weight: 500; }
+.price-list { display: grid; gap: 4px; margin-bottom: 18px; }
+.price-list div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.price-list dt { color: var(--muted); }
+.price-list dd { font-size: 1.5rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.price-list small { font-size: .9rem; color: var(--muted); font-weight: 500; }
 .card ul { list-style: none; color: var(--muted); }
 .card li { padding: 6px 0 6px 26px; position: relative; }
 .card li::before { content: "✓"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
@@ -143,6 +149,7 @@ img { max-width: 100%; display: block; }
 .field input:focus { border-color: var(--accent); }
 .options { border: 0; display: grid; gap: 10px; }
 .options legend { margin-bottom: 8px; }
+.options-row { grid-template-columns: 1fr 1fr; }
 .option {
   display: flex; align-items: center; gap: 14px; cursor: pointer;
   padding: 14px 16px; border: 1px solid var(--border); border-radius: 14px;

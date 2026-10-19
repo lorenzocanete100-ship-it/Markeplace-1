@@ -3,7 +3,11 @@ const CONFIG = {
   // Número de WhatsApp con código de país, sin "+" ni espacios (ej: 5491112345678)
   whatsapp: "5490000000000",
   telefono: "+54 9 0000 000000",
-  precios: { material: 15000, manoDeObra: 7000 },
+  // Precios por m², en pesos
+  precios: {
+    tradicional: { nombre: "Tradicional", material: 15000, manoDeObra: 7000 },
+    fina: { nombre: "Fina", material: 18000, manoDeObra: 9000 },
+  },
 };
 
 // Las fotos de tus trabajos se cargan desde fotos/fotos.json, que se edita desde admin.php.
@@ -45,20 +49,30 @@ document.querySelectorAll(".tab").forEach((tab) =>
   })
 );
 
+// Muestra en toda la página los precios definidos en CONFIG
+document.querySelectorAll("[data-precio]").forEach((el) => {
+  const [textura, tipo] = el.dataset.precio.split(".");
+  el.textContent = pesos(CONFIG.precios[textura][tipo]);
+});
+
 function calcular() {
   const superficie = modo === "m2" ? num(inputs.m2) : num(inputs.largo) * num(inputs.alto);
-  const tipo = document.querySelector('input[name="tipo"]:checked');
-  const unitario = Number(tipo.value);
+  const textura = CONFIG.precios[document.querySelector('input[name="textura"]:checked').value];
+  const tipo = document.querySelector('input[name="tipo"]:checked').value;
+  const unitario = textura[tipo];
   const total = Math.round(superficie * unitario);
-  const conMaterial = unitario === CONFIG.precios.material;
+  const conMaterial = tipo === "material";
   const m2Texto = superficie.toLocaleString("es-AR", { maximumFractionDigits: 2 });
 
+  $("#p-material").textContent = `${pesos(textura.material)} / m²`;
+  $("#p-manoDeObra").textContent = `${pesos(textura.manoDeObra)} / m²`;
+  $("#r-textura").textContent = textura.nombre;
   $("#r-m2").textContent = `${m2Texto} m²`;
   $("#r-unit").textContent = pesos(unitario);
   $("#r-total").textContent = pesos(total);
 
   const msg = superficie > 0
-    ? `Hola RevestimientoPro! Quiero un presupuesto de texturado: ${m2Texto} m², ${conMaterial ? "con material Ancaflex" : "solo mano de obra"}. Total estimado: ${pesos(total)}.`
+    ? `Hola RevestimientoPro! Quiero un presupuesto de textura ${textura.nombre.toLowerCase()}: ${m2Texto} m², ${conMaterial ? "con material Ancaflex" : "solo mano de obra"}. Total estimado: ${pesos(total)}.`
     : "Hola RevestimientoPro! Quiero pedir un presupuesto de texturado.";
   $("#wa-quote").href = waLink(msg);
 }
