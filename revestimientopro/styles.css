@@ -259,3 +259,11 @@ img { max-width: 100%; display: block; }
 @media (max-width: 560px) {
   .admin-item { grid-template-columns: 1fr; }
 }
+
+.ver-clave { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .95rem; cursor: pointer; width: fit-content; }
+.ver-clave input { accent-color: var(--accent); width: 18px; height: 18px; }
+.ayuda { color: var(--muted); }
+.ayuda summary { cursor: pointer; color: var(--text); font-weight: 600; padding: 8px 0; width: fit-content; }
+.ayuda summary:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; border-radius: 6px; }
+.ayuda p { margin-top: 8px; max-width: 60ch; }
+.ayuda .calc { margin-top: 14px; }

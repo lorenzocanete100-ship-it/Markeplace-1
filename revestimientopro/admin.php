@@ -1,6 +1,5 @@
 <?php
 declare(strict_types=1);
-require __DIR__ . '/config.php';
 
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'secure' => !empty($_SERVER['HTTPS'])]);
 session_start();
@@ -9,6 +8,41 @@ const FOTOS_DIR = __DIR__ . '/fotos';
 const FOTOS_JSON = FOTOS_DIR . '/fotos.json';
 const MAX_BYTES = 10 * 1024 * 1024;
 const TIPOS = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+// La contraseña se guarda cifrada en este archivo. Si te la olvidás, borralo
+// desde el Administrador de archivos y volvé a entrar a admin.php para crear otra.
+const CLAVE_FILE = __DIR__ . '/admin-clave.php';
+const CLAVE_MIN = 6;
+const CLAVE_CABECERA = "<?php http_response_code(404); exit; ?>\n";
+
+function leerHash(): ?string {
+    if (!is_file(CLAVE_FILE)) return null;
+    $hash = trim(substr((string) file_get_contents(CLAVE_FILE), strlen(CLAVE_CABECERA)));
+    return $hash !== '' ? $hash : null;
+}
+
+// $crear = true solo deja escribir si el archivo todavía no existe (primera vez).
+function guardarHash(string $clave, bool $crear): bool {
+    $contenido = CLAVE_CABECERA . password_hash($clave, PASSWORD_DEFAULT) . "\n";
+    if ($crear) {
+        $f = @fopen(CLAVE_FILE, 'x');
+        if (!$f) return false;
+        $ok = fwrite($f, $contenido) === strlen($contenido);
+        fclose($f);
+        return $ok;
+    }
+    $tmp = CLAVE_FILE . '.' . bin2hex(random_bytes(4)) . '.tmp';
+    if (file_put_contents($tmp, $contenido, LOCK_EX) !== strlen($contenido)) { @unlink($tmp); return false; }
+    return rename($tmp, CLAVE_FILE);
+}
+
+// La sesión guarda una huella de la contraseña: si se cambia o se resetea, hay que volver a entrar.
+function huella(string $hash): string { return hash('sha256', $hash); }
+
+function validarNueva(string $clave, string $repetida): string {
+    if (mb_strlen($clave) < CLAVE_MIN) return 'La contraseña tiene que tener al menos ' . CLAVE_MIN . ' caracteres.';
+    if ($clave !== $repetida) return 'Las dos contraseñas no coinciden. Escribilas de nuevo.';
+    return '';
+}
 
 function leerFotos(): array {
     if (!is_file(FOTOS_JSON)) return [];
@@ -24,7 +58,7 @@ function e(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8')
 
 function titulo(string $s): string { return mb_substr(trim($s), 0, 80); }
 
-$claveConfigurada = ADMIN_PASSWORD !== 'CAMBIAR-ESTA-CLAVE' && strlen(ADMIN_PASSWORD) >= 8;
+$hash = leerHash();
 $mensaje = '';
 $error = '';
 
@@ -37,10 +71,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $accion = $_POST['accion'] ?? '';
 
-    if ($accion === 'login' && $claveConfigurada) {
-        if (hash_equals(ADMIN_PASSWORD, (string) ($_POST['clave'] ?? ''))) {
+    $logueado = $hash !== null && hash_equals(huella($hash), (string) ($_SESSION['admin'] ?? ''));
+
+    if ($accion === 'crear_clave' && $hash === null) {
+        $clave = (string) ($_POST['clave'] ?? '');
+        $error = validarNueva($clave, (string) ($_POST['clave2'] ?? ''));
+        if (!$error) {
+            if (guardarHash($clave, true) && ($hash = leerHash()) !== null) {
+                session_regenerate_id(true);
+                $_SESSION['admin'] = huella($hash);
+                $mensaje = '¡Listo! Tu contraseña quedó guardada. Ya podés subir tus fotos.';
+            } else {
+                $hash = leerHash();
+                $error = $hash === null
+                    ? 'No se pudo guardar la contraseña. Revisá que la carpeta del sitio tenga permiso de escritura.'
+                    : 'Ya hay una contraseña creada. Ingresala para entrar.';
+            }
+        }
+    } elseif ($accion === 'login' && $hash !== null) {
+        if (password_verify((string) ($_POST['clave'] ?? ''), $hash)) {
             session_regenerate_id(true);
-            $_SESSION['admin'] = true;
+            $_SESSION['admin'] = huella($hash);
         } else {
             sleep(1);
             $error = 'Contraseña incorrecta.';
@@ -50,7 +101,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         session_destroy();
         header('Location: admin.php');
         exit;
-    } elseif (!empty($_SESSION['admin'])) {
+    } elseif ($accion === 'cambiar_clave' && $logueado) {
+        $nueva = (string) ($_POST['clave_nueva'] ?? '');
+        if (!password_verify((string) ($_POST['clave_actual'] ?? ''), $hash)) {
+            sleep(1);
+            $error = 'La contraseña actual no es correcta.';
+        } elseif (!($error = validarNueva($nueva, (string) ($_POST['clave_nueva2'] ?? '')))) {
+            if (guardarHash($nueva, false) && ($hash = leerHash()) !== null) {
+                $_SESSION['admin'] = huella($hash);
+                $mensaje = 'Contraseña cambiada.';
+            } else {
+                $error = 'No se pudo cambiar la contraseña. Probá de nuevo.';
+            }
+        }
+    } elseif ($logueado) {
         $fotos = leerFotos();
 
         if ($accion === 'subir') {
@@ -101,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$logueado = !empty($_SESSION['admin']);
+$logueado = $hash !== null && hash_equals(huella($hash), (string) ($_SESSION['admin'] ?? ''));
 $fotos = $logueado ? leerFotos() : [];
 $csrf = e($_SESSION['csrf']);
 ?>
@@ -131,9 +195,22 @@ $csrf = e($_SESSION['csrf']);
       <?php if ($mensaje): ?><p class="alert ok"><?= e($mensaje) ?></p><?php endif; ?>
       <?php if ($error): ?><p class="alert err"><?= e($error) ?></p><?php endif; ?>
 
-      <?php if (!$claveConfigurada): ?>
-        <h1 class="section-title">Falta configurar la contraseña</h1>
-        <p class="section-sub">Abrí el archivo <strong>config.php</strong> en el Administrador de archivos de Hostinger y cambiá <code>CAMBIAR-ESTA-CLAVE</code> por una contraseña tuya de al menos 8 caracteres.</p>
+      <?php if ($hash === null): ?>
+        <h1 class="section-title">Creá tu contraseña</h1>
+        <p class="section-sub">Es la primera vez que entrás. Elegí una contraseña para que solo vos puedas subir y borrar fotos. La vas a usar cada vez que entres acá.</p>
+        <form method="post" class="calc admin-login">
+          <input type="hidden" name="csrf" value="<?= $csrf ?>" />
+          <div class="field">
+            <label for="clave">Nueva contraseña (mínimo <?= CLAVE_MIN ?> caracteres)</label>
+            <input id="clave" name="clave" type="password" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required autofocus />
+          </div>
+          <div class="field">
+            <label for="clave2">Repetí la contraseña</label>
+            <input id="clave2" name="clave2" type="password" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required />
+          </div>
+          <label class="ver-clave"><input type="checkbox" data-ver-clave /> Mostrar contraseña</label>
+          <button class="btn btn-block" name="accion" value="crear_clave">Guardar contraseña y entrar</button>
+        </form>
 
       <?php elseif (!$logueado): ?>
         <h1 class="section-title">Administrar fotos</h1>
@@ -144,8 +221,13 @@ $csrf = e($_SESSION['csrf']);
             <label for="clave">Contraseña</label>
             <input id="clave" name="clave" type="password" autocomplete="current-password" required autofocus />
           </div>
+          <label class="ver-clave"><input type="checkbox" data-ver-clave /> Mostrar contraseña</label>
           <button class="btn btn-block" name="accion" value="login">Entrar</button>
         </form>
+        <details class="ayuda">
+          <summary>¿Te olvidaste la contraseña?</summary>
+          <p>Entrá al Administrador de archivos de Hostinger, abrí <strong>public_html</strong> y borrá el archivo <strong>admin-clave.php</strong>. Después volvé a esta página y vas a poder crear una contraseña nueva. Tus fotos no se borran.</p>
+        </details>
 
       <?php else: ?>
         <h1 class="section-title">Fotos de mis trabajos</h1>
@@ -189,8 +271,36 @@ $csrf = e($_SESSION['csrf']);
             <?php endforeach; ?>
           </ul>
         <?php endif; ?>
+
+        <details class="ayuda">
+          <summary>Cambiar contraseña</summary>
+          <form method="post" class="calc admin-login">
+            <input type="hidden" name="csrf" value="<?= $csrf ?>" />
+            <div class="field">
+              <label for="clave_actual">Contraseña actual</label>
+              <input id="clave_actual" name="clave_actual" type="password" autocomplete="current-password" required />
+            </div>
+            <div class="field">
+              <label for="clave_nueva">Nueva contraseña (mínimo <?= CLAVE_MIN ?> caracteres)</label>
+              <input id="clave_nueva" name="clave_nueva" type="password" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required />
+            </div>
+            <div class="field">
+              <label for="clave_nueva2">Repetí la nueva contraseña</label>
+              <input id="clave_nueva2" name="clave_nueva2" type="password" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required />
+            </div>
+            <label class="ver-clave"><input type="checkbox" data-ver-clave /> Mostrar contraseñas</label>
+            <button class="btn btn-block" name="accion" value="cambiar_clave">Cambiar contraseña</button>
+          </form>
+        </details>
       <?php endif; ?>
     </div>
   </main>
+  <script>
+    document.querySelectorAll("[data-ver-clave]").forEach((box) =>
+      box.addEventListener("change", () =>
+        box.closest("form").querySelectorAll(".field input").forEach((i) => (i.type = box.checked ? "text" : "password"))
+      )
+    );
+  </script>
 </body>
 </html>
