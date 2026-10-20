@@ -1,2 +1,3 @@
 Las fotos de tus trabajos se suben desde la página admin.php (con tu contraseña).
 No hace falta tocar esta carpeta a mano.
+La lista de fotos (fotos.json) se crea sola cuando subís la primera.

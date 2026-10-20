@@ -64,11 +64,15 @@ $error = '';
 
 if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!hash_equals($_SESSION['csrf'], (string) ($_POST['csrf'] ?? ''))) {
-        http_response_code(400);
-        exit('Solicitud inválida. Recargá la página e intentá de nuevo.');
-    }
+$accion = '';
+$esPost = $_SERVER['REQUEST_METHOD'] === 'POST';
+if ($esPost && !$_POST && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+    // El servidor descarta todo el formulario si las fotos juntas superan su límite.
+    $error = 'Las fotos pesan demasiado para subirlas todas juntas. Probá con menos fotos por vez.';
+} elseif ($esPost && !hash_equals($_SESSION['csrf'], (string) ($_POST['csrf'] ?? ''))) {
+    // Pasa si la página quedó abierta mucho tiempo y la sesión venció.
+    $error = 'La página estuvo abierta mucho tiempo y se venció. Probá de nuevo.';
+} elseif ($esPost) {
     $accion = $_POST['accion'] ?? '';
 
     $logueado = $hash !== null && hash_equals(huella($hash), (string) ($_SESSION['admin'] ?? ''));
@@ -125,7 +129,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $finfo = new finfo(FILEINFO_MIME_TYPE);
             $total = is_array($archivos['name'] ?? null) ? count($archivos['name']) : 0;
             for ($i = 0; $i < $total; $i++) {
-                if ($archivos['error'][$i] !== UPLOAD_ERR_OK) continue;
+                $err = $archivos['error'][$i];
+                if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) {
+                    $error = 'Algunas fotos no se subieron porque pesan demasiado (máximo 10 MB cada una).';
+                    continue;
+                }
+                if ($err !== UPLOAD_ERR_OK) continue;
                 $tmp = $archivos['tmp_name'][$i];
                 $mime = $finfo->file($tmp);
                 if (!isset(TIPOS[$mime]) || filesize($tmp) > MAX_BYTES || !getimagesize($tmp)) {
@@ -168,6 +177,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $logueado = $hash !== null && hash_equals(huella($hash), (string) ($_SESSION['admin'] ?? ''));
 $fotos = $logueado ? leerFotos() : [];
 $csrf = e($_SESSION['csrf']);
+$maxPorVez = (int) ini_get('max_file_uploads') ?: 20;
+// Los errores al cambiar la contraseña se muestran dentro de esa sección, que queda abierta.
+$errClave = $accion === 'cambiar_clave' && $error;
 ?>
 <!doctype html>
 <html lang="es-AR">
@@ -193,7 +205,7 @@ $csrf = e($_SESSION['csrf']);
   <main class="section">
     <div class="container admin-wrap">
       <?php if ($mensaje): ?><p class="alert ok"><?= e($mensaje) ?></p><?php endif; ?>
-      <?php if ($error): ?><p class="alert err"><?= e($error) ?></p><?php endif; ?>
+      <?php if ($error && !$errClave): ?><p class="alert err"><?= e($error) ?></p><?php endif; ?>
 
       <?php if ($hash === null): ?>
         <h1 class="section-title">Creá tu contraseña</h1>
@@ -202,11 +214,11 @@ $csrf = e($_SESSION['csrf']);
           <input type="hidden" name="csrf" value="<?= $csrf ?>" />
           <div class="field">
             <label for="clave">Nueva contraseña (mínimo <?= CLAVE_MIN ?> caracteres)</label>
-            <input id="clave" name="clave" type="password" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required autofocus />
+            <input id="clave" name="clave" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required autofocus />
           </div>
           <div class="field">
             <label for="clave2">Repetí la contraseña</label>
-            <input id="clave2" name="clave2" type="password" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required />
+            <input id="clave2" name="clave2" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required />
           </div>
           <label class="ver-clave"><input type="checkbox" data-ver-clave /> Mostrar contraseña</label>
           <button class="btn btn-block" name="accion" value="crear_clave">Guardar contraseña y entrar</button>
@@ -219,14 +231,14 @@ $csrf = e($_SESSION['csrf']);
           <input type="hidden" name="csrf" value="<?= $csrf ?>" />
           <div class="field">
             <label for="clave">Contraseña</label>
-            <input id="clave" name="clave" type="password" autocomplete="current-password" required autofocus />
+            <input id="clave" name="clave" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="current-password" required autofocus />
           </div>
           <label class="ver-clave"><input type="checkbox" data-ver-clave /> Mostrar contraseña</label>
           <button class="btn btn-block" name="accion" value="login">Entrar</button>
         </form>
         <details class="ayuda">
           <summary>¿Te olvidaste la contraseña?</summary>
-          <p>Entrá al Administrador de archivos de Hostinger, abrí <strong>public_html</strong> y borrá el archivo <strong>admin-clave.php</strong>. Después volvé a esta página y vas a poder crear una contraseña nueva. Tus fotos no se borran.</p>
+          <p>Entrá al Administrador de archivos de Hostinger, abrí la carpeta donde subiste la página (normalmente <strong>public_html</strong>) y borrá el archivo <strong>admin-clave.php</strong>. Después volvé a esta página y vas a poder crear una contraseña nueva. Tus fotos no se borran.</p>
         </details>
 
       <?php else: ?>
@@ -236,7 +248,7 @@ $csrf = e($_SESSION['csrf']);
         <form method="post" enctype="multipart/form-data" class="calc upload-form">
           <input type="hidden" name="csrf" value="<?= $csrf ?>" />
           <div class="field">
-            <label for="fotos">Fotos (podés elegir varias)</label>
+            <label for="fotos">Fotos (podés elegir hasta <?= $maxPorVez ?> por vez)</label>
             <input id="fotos" name="fotos[]" type="file" accept="image/jpeg,image/png,image/webp" multiple required />
           </div>
           <div class="field">
@@ -272,30 +284,33 @@ $csrf = e($_SESSION['csrf']);
           </ul>
         <?php endif; ?>
 
-        <details class="ayuda">
+        <details class="ayuda" <?= $errClave ? 'open' : '' ?>>
           <summary>Cambiar contraseña</summary>
+          <?php if ($errClave): ?><p class="alert err"><?= e($error) ?></p><?php endif; ?>
           <form method="post" class="calc admin-login">
             <input type="hidden" name="csrf" value="<?= $csrf ?>" />
             <div class="field">
               <label for="clave_actual">Contraseña actual</label>
-              <input id="clave_actual" name="clave_actual" type="password" autocomplete="current-password" required />
+              <input id="clave_actual" name="clave_actual" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="current-password" required <?= $errClave ? 'autofocus' : '' ?> />
             </div>
             <div class="field">
               <label for="clave_nueva">Nueva contraseña (mínimo <?= CLAVE_MIN ?> caracteres)</label>
-              <input id="clave_nueva" name="clave_nueva" type="password" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required />
+              <input id="clave_nueva" name="clave_nueva" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required />
             </div>
             <div class="field">
               <label for="clave_nueva2">Repetí la nueva contraseña</label>
-              <input id="clave_nueva2" name="clave_nueva2" type="password" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required />
+              <input id="clave_nueva2" name="clave_nueva2" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" minlength="<?= CLAVE_MIN ?>" autocomplete="new-password" required />
             </div>
             <label class="ver-clave"><input type="checkbox" data-ver-clave /> Mostrar contraseñas</label>
             <button class="btn btn-block" name="accion" value="cambiar_clave">Cambiar contraseña</button>
           </form>
+          <p>¿No te acordás de la contraseña actual? Tocá <strong>Salir</strong> y usá «¿Te olvidaste la contraseña?».</p>
         </details>
       <?php endif; ?>
     </div>
   </main>
   <script>
+    document.querySelector("details[open] input")?.scrollIntoView({ block: "center" });
     document.querySelectorAll("[data-ver-clave]").forEach((box) =>
       box.addEventListener("change", () =>
         box.closest("form").querySelectorAll(".field input").forEach((i) => (i.type = box.checked ? "text" : "password"))
