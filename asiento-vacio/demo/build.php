@@ -22,7 +22,7 @@ $banner = <<<'HTML'
 <div class="demo-bar" role="note">
   <div class="wrap demo-in">
     <p><strong>Modo prueba.</strong> Los viajes y las opiniones de ejemplo, y todo lo que cargues, quedan solo en este navegador: nada se publica de verdad.
-      Creá una cuenta con cualquier correo o celular, o entrá como Marta (celular <code>11 0000 1111</code>, contraseña <code>marta-prueba</code>) para probar las calificaciones. Código de administración de prueba: <code>PRUEBA-2026</code></p>
+      Creá una cuenta con cualquier correo o celular, o entrá como Marta (celular <code>11 0000 1111</code>, contraseña <code>marta-prueba</code>) para probar las calificaciones. Para probar <a href="#admin">Administración</a> (en el sitio real no hay link: se entra con la dirección terminada en <code>#admin</code>), el código de prueba es <code>PRUEBA-2026</code>.</p>
     <button type="button" class="btn btn-sm btn-ghost" id="demo-reset">Empezar de cero</button>
   </div>
 </div>
@@ -33,6 +33,7 @@ $demoCss = <<<'CSS'
 .demo-in { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding-block: 10px; }
 .demo-in p { margin: 0; flex: 1 1 280px; min-width: 0; }
 .demo-in code { font-weight: 800; letter-spacing: .04em; user-select: all; }
+.demo-in a { color: inherit; font-weight: 700; }
 .demo-in .btn-ghost { color: var(--warn-ink); border-color: currentColor; }
 CSS;
 

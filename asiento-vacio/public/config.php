@@ -3,10 +3,10 @@
 defined('ASIENTO') || exit;
 
 return [
-    // Huella (SHA-256) del código que activa la primera cuenta de administración.
-    // El código en sí no se guarda en ningún lado: solo lo tiene el dueño del sitio.
-    // Una vez que hay un administrador, el código deja de servir y los demás
-    // administradores se nombran desde la sección Administrar.
+    // Huella (SHA-256) del código que activa la administración (en la dirección del sitio
+    // terminada en #admin). El código en sí no se guarda en ningún lado: solo lo tiene el
+    // dueño del sitio. Sirve siempre, para recuperar el acceso si se pierde la cuenta; los
+    // demás administradores se nombran desde la sección Administrar.
     'admin_code_sha256' => getenv('ASIENTO_ADMIN_CODE_SHA256')
         ?: '74a0de2dc79907d43041242c7df0d45410a8da8c3a612502e293b151a8ac1e11',
 

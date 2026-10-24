@@ -147,8 +147,11 @@ También se puede publicar con hPanel → Avanzado → Git, clonando esa rama.
 
 ## Administrar
 
-En `#admin` (link "Administración" al pie de la página, y "Administrar" en el
-menú para quien ya es administrador) hay un resumen y estas pestañas:
+En `#admin` hay un resumen y estas pestañas. La página no muestra ningún link a
+Administración para el público: el dueño entra escribiendo la dirección del sitio
+terminada en `#admin` (por ejemplo `https://asientovacio.com.ar/#admin`), y quien ya
+es administrador ve "Administrar" en el menú. Sin el código secreto, nadie puede
+activarla (además hay un límite de 10 intentos por hora por conexión).
 
 - **Denuncias** que manda la gente desde cada viaje.
 - **Calificaciones**: todas las opiniones, con cómo viajaron ("como conductor"

@@ -619,6 +619,9 @@ check('estado del servidor', $anon->get('health')[1]['ok'] === true);
 check('acción desconocida', $anon->get('nada')[0] === 404);
 [$code, $html] = $anon->raw('');
 check('la página principal carga, sin nada de Google', $code === 200 && str_contains($html, 'Asiento Vacío') && !str_contains($html, 'accounts.google'));
+preg_match_all('/<a [^>]*href="#admin"[^>]*>/', $html, $adminLinks);
+check('el público no ve ningún link a Administración (solo el menú de quien ya administra)', count($adminLinks[0]) === 1
+    && str_contains($adminLinks[0][0], 'class="only-admin" hidden'), $adminLinks[0]);
 preg_match_all('/(?:src|href)="([^"#]+)"/', $html, $assets);
 foreach (array_unique($assets[1]) as $asset) {
     check("existe $asset", $anon->raw(strtok($asset, '?'))[0] === 200);

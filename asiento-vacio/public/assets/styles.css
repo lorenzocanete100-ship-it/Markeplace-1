@@ -329,8 +329,6 @@ legend { font-weight: 700; margin-bottom: 8px; padding: 0; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .filters .filter { flex: 1 1 220px; width: auto; min-width: 0; margin-bottom: 0; }
 .item-reason { font-size: .9rem; color: var(--bad-ink); }
-.footer-links { margin: 16px 0 0; }
-.footer-links a { color: var(--muted); font-weight: 600; }
 
 /* Calificaciones */
 .search .only-rated { grid-column: 1 / -1; font-weight: 500; }
